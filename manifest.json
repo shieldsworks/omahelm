@@ -1,0 +1,16 @@
+{
+  "schemaVersion": 1,
+  "id": "org.omahoy.helm",
+  "name": "Omahelm",
+  "version": "0.1.0",
+  "author": "Casey Shields",
+  "license": "MIT",
+  "homepage": "https://omahoy.org",
+  "description": "Chartplotter: NOAA charts drawn from scratch, with your boat and AIS",
+  "kinds": [
+    "panel"
+  ],
+  "entryPoints": {
+    "panel": "ui/Panel.qml"
+  }
+}
