@@ -65,6 +65,8 @@ skipped; `omahelm index` lists them.
 | `i` | What's charted at the centre |
 | `w`, right-click | Set a waypoint: bearing, range and ETA from the boat |
 | `W` | Clear the waypoint |
+| `b` | Wind barbs, from [omawind](https://github.com/shieldsworks/omawind) |
+| `[` `]` | The wind an hour earlier, later |
 | `?` | Keys |
 | `Esc` | Close a card |
 | `q` | Close |
