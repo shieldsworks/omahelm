@@ -91,7 +91,7 @@ fn berkeley_breakwater_light_reads_as_charted() {
 }
 
 #[test]
-fn a_harbour_tile_draws_chart_not_blank() {
+fn a_harbor_tile_draws_chart_not_blank() {
     let tmp = std::env::temp_dir().join(format!("omahelm-tile-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&tmp);
     std::fs::create_dir_all(tmp.join("ENC_ROOT")).unwrap();
@@ -120,14 +120,14 @@ fn a_harbour_tile_draws_chart_not_blank() {
         scale: 1,
     };
     let pm = render::render(&lib, &style, None, key).unwrap();
-    let mut colours = std::collections::HashSet::new();
+    let mut colors = std::collections::HashSet::new();
     for px in pm.data().as_chunks::<4>().0 {
-        colours.insert([px[0], px[1], px[2]]);
+        colors.insert([px[0], px[1], px[2]]);
     }
     // Land, several depth shades, contours and buoys.
-    assert!(colours.len() > 20, "only {} colours", colours.len());
+    assert!(colors.len() > 20, "only {} colors", colors.len());
     let land = Palette::paper().land;
-    assert!(colours.contains(&[land.0, land.1, land.2]));
+    assert!(colors.contains(&[land.0, land.1, land.2]));
     let png = render::png(&pm).unwrap();
     assert_eq!(&png[1..4], b"PNG");
     std::fs::remove_dir_all(&tmp).unwrap();

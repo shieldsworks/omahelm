@@ -20,7 +20,7 @@ Item {
     property var waypoint: null     // {lat, lon}
     property var mark: null         // {lat, lon}: the point a query asked about
 
-    // Camera: the view centre in Mercator units (the world is the unit
+    // Camera: the view center in Mercator units (the world is the unit
     // square, x east, y south) and a fractional zoom level.
     property real cx: Geo.mercX(-122.3148)
     property real cy: Geo.mercY(37.8663)
@@ -30,7 +30,7 @@ Item {
     readonly property real world: 256 * Math.pow(2, zoom)
     readonly property real centerLat: Geo.lat(cy)
     readonly property real centerLon: Geo.lon(cx)
-    readonly property real metresPerPixel: Geo.metresPerPixel(zoom, centerLat)
+    readonly property real metersPerPixel: Geo.metersPerPixel(zoom, centerLat)
 
     property point hover: Qt.point(0, 0)
     property bool hovering: false
@@ -212,7 +212,7 @@ Item {
             required property int row
             required property string path
             readonly property real n: Math.pow(2, lvl)
-            // Edges round to whole pixels so neighbours meet without a seam.
+            // Edges round to whole pixels so neighbors meet without a seam.
             readonly property real edgeX: Math.round(map.sx(col / n))
             readonly property real edgeY: Math.round(map.sy(row / n))
             x: edgeX
@@ -303,7 +303,7 @@ Item {
             readonly property real course: typeof t.cogDeg === "number" ? t.cogDeg : headed ? t.headingDeg : 0
             readonly property real heading: headed ? t.headingDeg : course
             // No course, no vector: never a made-up one pointing north.
-            readonly property real vector: moving ? t.sogKn * 0.1 * 1852 / map.metresPerPixel : 0
+            readonly property real vector: moving ? t.sogKn * 0.1 * 1852 / map.metersPerPixel : 0
             readonly property color ink: t.danger ? map.theme.red : map.theme.foreground
             x: at.x
             y: at.y
@@ -420,7 +420,7 @@ Item {
     onWindChanged: barbs.requestPaint()
 
     // omawind's stations: the wind NOAA's buoys and piers measured, drawn
-    // over the forecast in the accent colour, each barb on a dot with its
+    // over the forecast in the accent color, each barb on a dot with its
     // knots on the far side.
     property var stations: []
     onStationsChanged: barbs.requestPaint()
@@ -497,7 +497,7 @@ Item {
         anchors.fill: parent
         z: 5
         visible: !!map.wind || map.stations.length > 0
-        // Painted colours don't follow the theme on their own.
+        // Painted colors don't follow the theme on their own.
         property color ink: map.theme.foreground
         property color halo: map.theme.background
         property color measured: map.theme.accent
@@ -510,8 +510,8 @@ Item {
             var points = map.wind && Array.isArray(map.wind.points) ? map.wind.points : [];
             ctx.lineCap = "round";
             ctx.lineJoin = "round";
-            // A halo in the background colour first, so barbs read over any
-            // chart colour, then the barbs themselves.
+            // A halo in the background color first, so barbs read over any
+            // chart color, then the barbs themselves.
             var passes = [[String(halo), 4], [String(ink), 1.5]];
             for (var k = 0; k < passes.length; k++) {
                 ctx.strokeStyle = passes[k][0];

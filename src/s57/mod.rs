@@ -30,7 +30,7 @@ pub struct LonLat {
 pub enum Geometry {
     None,
     Point(LonLat),
-    /// Depths in metres, positive down.
+    /// Depths in meters, positive down.
     Soundings(Vec<(LonLat, f64)>),
     Lines(Vec<Vec<LonLat>>),
     /// `rings` are closed and filled even-odd. `outline` is the boundary to
@@ -92,8 +92,8 @@ impl Cell {
             reader
                 .read(&bytes, false)
                 .map_err(|e| format!("{}: {e}", path.display()))?;
-            if reader.cancelled {
-                return Err(format!("{} was cancelled by its producer", reader.name));
+            if reader.canceled {
+                return Err(format!("{} was canceled by its producer", reader.name));
             }
         }
         Ok(reader.build())
@@ -136,7 +136,7 @@ struct RawVector {
     pointers: Vec<Pointer>,
     /// (y, x) in units of 1/COMF degrees.
     coords: Vec<(i32, i32)>,
-    /// Soundings only: depth in units of 1/SOMF metres, one per coordinate.
+    /// Soundings only: depth in units of 1/SOMF meters, one per coordinate.
     depths: Vec<i32>,
 }
 
@@ -162,7 +162,7 @@ struct Reader {
     nall: u8,
     features: BTreeMap<u32, RawFeature>,
     vectors: HashMap<(u8, u32), RawVector>,
-    cancelled: bool,
+    canceled: bool,
     skip: bool,
 }
 
@@ -180,7 +180,7 @@ impl Default for Reader {
             nall: 2,
             features: BTreeMap::new(),
             vectors: HashMap::new(),
-            cancelled: false,
+            canceled: false,
             skip: false,
         }
     }
@@ -391,7 +391,7 @@ impl Reader {
                             return Err(format!("update for {stem}, not {}", self.name));
                         }
                         if edition == 0 {
-                            self.cancelled = true;
+                            self.canceled = true;
                         } else if edition != self.edition {
                             return Err(format!(
                                 "update {update} is for edition {edition}, but the cell is edition {}; download it again",
@@ -888,9 +888,9 @@ mod tests {
         let ucs2 = attributes(b"\x2d\x01B\x00a\x00y\x00\x1f\x00\x1e\x00", 2);
         assert_eq!(ucs2, vec![(301, "Bay".to_string())]);
         // Attribute 30 (CATHAF) starts with the field terminator's byte.
-        let harbour = attributes(b"\x1e\x005\x1f\x74\x00Emeryville Marina\x1f", 1);
+        let harbor = attributes(b"\x1e\x005\x1f\x74\x00Emeryville Marina\x1f", 1);
         assert_eq!(
-            harbour,
+            harbor,
             vec![
                 (30, "5".to_string()),
                 (116, "Emeryville Marina".to_string())

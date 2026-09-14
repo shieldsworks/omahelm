@@ -4,9 +4,9 @@
 use std::f64::consts::PI;
 
 pub const MAX_LATITUDE: f64 = 85.051_128_78;
-/// The equator in metres, on the sphere Web Mercator uses.
+/// The equator in meters, on the sphere Web Mercator uses.
 pub const EQUATOR_M: f64 = 40_075_016.686;
-/// A nautical mile in metres.
+/// A nautical mile in meters.
 pub const NM: f64 = 1852.0;
 
 pub fn mercator(lon: f64, lat: f64) -> [f64; 2] {
@@ -20,15 +20,15 @@ pub fn lon_lat(p: [f64; 2]) -> (f64, f64) {
     (lon, lat)
 }
 
-/// Ground metres per logical pixel at a zoom level, at a latitude.
-pub fn metres_per_pixel(zoom: f64, lat: f64) -> f64 {
+/// Ground meters per logical pixel at a zoom level, at a latitude.
+pub fn meters_per_pixel(zoom: f64, lat: f64) -> f64 {
     EQUATOR_M * lat.to_radians().cos() / (256.0 * zoom.exp2())
 }
 
 /// The chart scale a zoom level shows at a latitude, as the denominator:
 /// 12000 for 1:12,000. A logical pixel is taken as 0.28 mm, as S-52 does.
 pub fn scale_denominator(zoom: f64, lat: f64) -> f64 {
-    metres_per_pixel(zoom, lat) / 0.000_28
+    meters_per_pixel(zoom, lat) / 0.000_28
 }
 
 /// A rectangle in Web Mercator units.
@@ -147,7 +147,7 @@ mod tests {
 
     #[test]
     fn scale_at_the_bay() {
-        // Zoom 15 at the Bay is about 1:14,000, a harbour chart.
+        // Zoom 15 at the Bay is about 1:14,000, a harbor chart.
         let s = scale_denominator(15.0, 37.87);
         assert!((13_000.0..15_000.0).contains(&s), "{s}");
     }

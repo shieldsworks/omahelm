@@ -205,7 +205,7 @@ impl Engine {
         let lib = &view.library;
         let set = &view.day.style.settings;
         let u = set.units;
-        let round = |m: f64| (u.from_metres(m) * 10.0).round() / 10.0;
+        let round = |m: f64| (u.from_meters(m) * 10.0).round() / 10.0;
         let mut charts = json!({
             "status": if view.indexing.is_some() { "indexing" } else if lib.entries.is_empty() { "empty" } else { "ok" },
             "cells": lib.entries.len(),
@@ -824,11 +824,11 @@ fn describe(chart: &Chart, item: &Item, at: [f64; 2], set: &Settings) -> Value {
     let mut lines: Vec<String> = Vec::new();
     let mut label = None;
     let mut title = name.clone();
-    let colours = || -> Option<String> {
+    let colors = || -> Option<String> {
         let c: Vec<&str> = item
             .list(COLOUR)
             .iter()
-            .map(|&c| marks::colour_name(c))
+            .map(|&c| marks::color_name(c))
             .collect();
         (!c.is_empty()).then(|| capitalise(&c.join(", ")))
     };
@@ -836,7 +836,7 @@ fn describe(chart: &Chart, item: &Item, at: [f64; 2], set: &Settings) -> Value {
         BOYLAT | BOYCAR | BOYISD | BOYSAW | BOYSPP | BOYINB | BCNLAT | BCNCAR | BCNISD | BCNSAW
         | BCNSPP | LITFLT | LITVES => {
             label = Some(marks::aid_label(item));
-            lines.extend(colours());
+            lines.extend(colors());
             if let Some(s) = item
                 .first(BOYSHP)
                 .map(marks::buoy_shape)
