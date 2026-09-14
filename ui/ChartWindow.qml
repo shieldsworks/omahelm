@@ -143,6 +143,15 @@ Item {
     // omawind's wind barbs, now or at a whole hour ahead: b, [ and ], the
     // scrubber along the bottom, and space to play the hours.
     property bool windOn: false
+    // The time bar along the bottom: closed until t or the TIME chip opens
+    // it, and remembered. [ ], space and the WIND label work without it.
+    property bool timeBar: false
+    function toggleTimeBar() {
+        if (!windOn) {
+            toggleWind();
+            timeBar = true;
+        } else timeBar = !timeBar;
+    }
     // The hour chosen, as UTC milliseconds, or 0 for now. It's absolute,
     // so the barbs stay right as the clock turns over.
     property real windAt: 0
@@ -584,6 +593,7 @@ Item {
             if (s.waypoint && typeof s.waypoint.lat === "number" && typeof s.waypoint.lon === "number")
                 waypoint = {lat: s.waypoint.lat, lon: s.waypoint.lon};
             if (s.wind === true) windOn = true;
+            if (s.timeBar === true) timeBar = true;
         } else if (helm.state && helm.state.charts && helm.state.charts.extent) {
             var e = helm.state.charts.extent;
             map.fit(e.west, e.south, e.east, e.north);
@@ -609,6 +619,7 @@ Item {
         var view = {lat: map.centerLat, lon: map.centerLon, zoom: Math.round(map.zoom * 100) / 100};
         if (waypoint) view.waypoint = waypoint;
         if (windOn) view.wind = true;
+        if (timeBar) view.timeBar = true;
         var text = JSON.stringify(view);
         var slash = viewPath.lastIndexOf("/");
         writer.command = ["sh", "-c", 'mkdir -p -- "$1" && printf "%s\\n" "$3" > "$2" && mv -f -- "$2" "$4"',
@@ -724,6 +735,7 @@ Item {
         else if (t === "W") { waypoint = null; }
         else if (t === "n") toggleNight();
         else if (t === "b") toggleWind();
+        else if (t === "t") toggleTimeBar();
         else if (t === "]") stepWind(1);
         else if (t === "[") stepWind(-1);
         else if (t === " ") togglePlay();
@@ -767,6 +779,7 @@ Item {
                                    features: app.result ? app.result.features.length : -1, waypoint: app.waypoint,
                                    wind: app.windOn, windHours: app.windHours, windSpan: app.windSpan,
                                    playing: app.windPlaying, cached: Object.keys(app.windCache).length,
+                                   timeBar: app.timeBar, timeBarShown: scrubber.visible,
                                    scrub: app.scrubText,
                                    night: app.theme.night, nightTiles: map.nightTiles,
                                    barbs: app.windField ? app.windField.points.length : -1,
@@ -877,31 +890,50 @@ Item {
                 }
             }
 
-            // The wind layer: which hour, from which run.
-            Rectangle {
+            // The wind layer: which hour, from which run, and the chip that
+            // opens the time bar.
+            Row {
                 visible: app.windOn
                 z: 30
                 anchors { top: parent.top; left: parent.left; margins: 10 }
-                height: 24
-                width: windLabel.implicitWidth + 16
-                color: Qt.alpha(app.theme.background, 0.85)
-                border.width: 1
-                border.color: Qt.alpha(app.theme.foreground, 0.25)
-                Label {
-                    id: windLabel
-                    anchors.centerIn: parent
-                    text: app.windText
-                    font.pixelSize: app.theme.baseSize - 1
+                spacing: 6
+                Rectangle {
+                    height: 24
+                    width: windLabel.implicitWidth + 16
+                    color: Qt.alpha(app.theme.background, 0.85)
+                    border.width: 1
+                    border.color: Qt.alpha(app.theme.foreground, 0.25)
+                    Label {
+                        id: windLabel
+                        anchors.centerIn: parent
+                        text: app.windText
+                        font.pixelSize: app.theme.baseSize - 1
+                    }
+                }
+                Rectangle {
+                    height: 24
+                    width: timeLabel.implicitWidth + 16
+                    color: app.timeBar ? app.theme.accent : Qt.alpha(app.theme.background, 0.85)
+                    border.width: 1
+                    border.color: app.timeBar ? app.theme.accent : Qt.alpha(app.theme.foreground, 0.25)
+                    Label {
+                        id: timeLabel
+                        anchors.centerIn: parent
+                        text: "TIME  t"
+                        color: app.timeBar ? app.theme.background : app.theme.foreground
+                        font.pixelSize: app.theme.baseSize - 1
+                    }
+                    MouseArea { anchors.fill: parent; onClicked: { app.toggleTimeBar(); saveSoon.restart(); } }
                 }
             }
 
             // The wind over time: the forecast at the boat hour by hour, an
-            // hour to drag or click to, and play. Only with the barbs on and
-            // forecast hours ahead.
+            // hour to drag or click to, and play. Only when opened, with the
+            // barbs on and forecast hours ahead.
             Rectangle {
                 id: scrubber
                 // Too narrow a window for a bar of hours: none.
-                visible: app.windOn && app.windSpan > 0 && app.notice === "" && map.width >= 240
+                visible: app.timeBar && app.windOn && app.windSpan > 0 && app.notice === "" && map.width >= 240
                 z: 30
                 anchors { left: parent.left; right: parent.right; bottom: statusBar.top; margins: 10 }
                 height: app.theme.baseSize * 2 + 36
@@ -1291,7 +1323,8 @@ Item {
                             ["w  right-click", "waypoint at the cursor"],
                             ["W", "clear the waypoint"],
                             ["b", "wind barbs from omawind: forecast, and measured on dots"],
-                            ["[  ]  the time bar", "the wind an hour earlier, later; drag"],
+                            ["[  ]", "the wind an hour earlier, later"],
+                            ["t", "the time bar: wind at the boat by the hour"],
                             ["space", "play the wind hour by hour"],
                             ["n", "Night Watch: red on black"],
                             ["Esc", "close the card"],
