@@ -30,7 +30,7 @@ QtObject {
             if (!line || line[0] === "#") continue;
             var head = line.match(/^\[([^\]]+)\]\s*(#.*)?$/);
             if (head) { section = head[1].trim() + "."; continue; }
-            // A quoted value keeps its `#` (colours are "#rrggbb"); a bare
+            // A quoted value keeps its `#` (colors are "#rrggbb"); a bare
             // one ends at a comment.
             var kv = line.match(/^([\w.-]+)\s*=\s*(?:"([^"]*)"|'([^']*)'|([^#]*?))\s*(#.*)?$/);
             if (!kv) continue;

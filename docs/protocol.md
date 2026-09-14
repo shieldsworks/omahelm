@@ -45,7 +45,7 @@ replace their copy.
 - `charts.status` is `indexing` while cells are read (with
   `progress: {"done": n, "total": m}`), `ok` with at least one chart, and
   `empty` with none. `extent` is present only with charts.
-- `skipped` counts cells that couldn't be used, cancelled cells included;
+- `skipped` counts cells that couldn't be used, canceled cells included;
   `omahelm index` lists them.
 - `tiles.root` is an absolute directory ending in `/`. Tile paths are
   relative to it. It changes, with `generation`, whenever the drawing would:
@@ -58,7 +58,7 @@ replace their copy.
   `~/.config/omahelm/config.toml`.
 - `problems` are human-readable, for display. Absent when there are none.
 
-`tile` answers a `tiles` request, one message per tile, nearest the centre
+`tile` answers a `tiles` request, one message per tile, nearest the center
 of the request first.
 
 ```json

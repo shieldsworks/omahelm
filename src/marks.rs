@@ -1,4 +1,4 @@
-//! Chart notation: how a light, a buoy, a bottom or a colour is written on
+//! Chart notation: how a light, a buoy, a bottom or a color is written on
 //! a paper chart. Shared by the tiles and by what a click on a feature
 //! shows.
 
@@ -44,10 +44,10 @@ pub fn light(item: &Item) -> String {
             out.push_str(g);
         }
     }
-    // White goes unsaid on a light of one colour, not on one that
+    // White goes unsaid on a light of one color, not on one that
     // alternates white and red.
     let list = item.list(COLOUR);
-    let colours: String = list
+    let colors: String = list
         .iter()
         .filter_map(|c| match c {
             1 if list.len() > 1 => Some("W"),
@@ -60,8 +60,8 @@ pub fn light(item: &Item) -> String {
             _ => None,
         })
         .collect();
-    if !colours.is_empty() {
-        push_word(&mut out, &colours);
+    if !colors.is_empty() {
+        push_word(&mut out, &colors);
     }
     if let Some(p) = item.num(SIGPER) {
         push_word(&mut out, &format!("{}s", trim_number(p)));
@@ -89,7 +89,7 @@ pub fn trim_number(v: f64) -> String {
     }
 }
 
-pub fn colour_letter(code: u32) -> &'static str {
+pub fn color_letter(code: u32) -> &'static str {
     match code {
         1 => "W",
         2 => "B",
@@ -108,7 +108,7 @@ pub fn colour_letter(code: u32) -> &'static str {
     }
 }
 
-pub fn colour_name(code: u32) -> &'static str {
+pub fn color_name(code: u32) -> &'static str {
     match code {
         1 => "white",
         2 => "black",
@@ -116,25 +116,21 @@ pub fn colour_name(code: u32) -> &'static str {
         4 => "green",
         5 => "blue",
         6 => "yellow",
-        7 => "grey",
+        7 => "gray",
         8 => "brown",
         9 => "amber",
         10 => "violet",
         11 => "orange",
         12 => "magenta",
         13 => "pink",
-        _ => "unknown colour",
+        _ => "unknown color",
     }
 }
 
-/// A buoy or beacon's label as a paper chart writes it: colour, then the
+/// A buoy or beacon's label as a paper chart writes it: color, then the
 /// number from its name in quotes, `G "1"` or `R "2"`.
 pub fn aid_label(item: &Item) -> String {
-    let colours: String = item
-        .list(COLOUR)
-        .iter()
-        .map(|&c| colour_letter(c))
-        .collect();
+    let colors: String = item.list(COLOUR).iter().map(|&c| color_letter(c)).collect();
     // The last word when it's a number (`7`, `2A`) or a short letter code
     // (`BR`), not the end of a name (`Buoy`).
     let number = item
@@ -147,9 +143,9 @@ pub fn aid_label(item: &Item) -> String {
                     || w.chars().all(|c| c.is_ascii_uppercase()))
         });
     match number {
-        Some(n) if colours.is_empty() => format!("\"{n}\""),
-        Some(n) => format!("{colours} \"{n}\""),
-        None => colours,
+        Some(n) if colors.is_empty() => format!("\"{n}\""),
+        Some(n) => format!("{colors} \"{n}\""),
+        None => colors,
     }
 }
 
@@ -200,14 +196,14 @@ pub fn bottom(item: &Item) -> String {
         .join(".")
 }
 
-/// A depth in the chosen units: whole feet or fathoms; metres keep a
+/// A depth in the chosen units: whole feet or fathoms; meters keep a
 /// tenth below 31 m, which is drawn as a subscript.
-pub fn depth(metres: f64, units: Units) -> (String, Option<String>) {
-    let v = units.from_metres(metres);
+pub fn depth(meters: f64, units: Units) -> (String, Option<String>) {
+    let v = units.from_meters(meters);
     let neg = v < 0.0;
     let a = v.abs();
     let (whole, tenth) = match units {
-        Units::Metres if a < 31.0 => {
+        Units::Meters if a < 31.0 => {
             let t = (a * 10.0).round() as i64;
             (t / 10, Some(t % 10))
         }
@@ -223,12 +219,12 @@ pub fn depth(metres: f64, units: Units) -> (String, Option<String>) {
 
 /// A depth written out, for the identify panel. Feet are whole, as on a
 /// US chart, which also undoes NOAA's rounding: 6 ft is stored as 1.8 m.
-pub fn depth_words(metres: f64, units: Units) -> String {
-    format!("{} {}", depth_number(metres, units), units.short())
+pub fn depth_words(meters: f64, units: Units) -> String {
+    format!("{} {}", depth_number(meters, units), units.short())
 }
 
-pub fn depth_number(metres: f64, units: Units) -> String {
-    let v = units.from_metres(metres);
+pub fn depth_number(meters: f64, units: Units) -> String {
+    let v = units.from_meters(meters);
     match units {
         Units::Feet => trim_number(v.round()),
         _ => trim_number((v * 10.0).round() / 10.0),
@@ -317,10 +313,10 @@ mod tests {
     #[test]
     fn depths_in_units() {
         assert_eq!(depth(3.6576, Units::Feet), ("12".into(), None));
-        assert_eq!(depth(3.4, Units::Metres), ("3".into(), Some("4".into())));
-        assert_eq!(depth(35.0, Units::Metres), ("35".into(), None));
+        assert_eq!(depth(3.4, Units::Meters), ("3".into(), Some("4".into())));
+        assert_eq!(depth(35.0, Units::Meters), ("35".into(), None));
         assert_eq!(depth(-0.6, Units::Feet), ("-2".into(), None));
         assert_eq!(depth_words(1.8, Units::Feet), "6 ft");
-        assert_eq!(depth_words(1.8, Units::Metres), "1.8 m");
+        assert_eq!(depth_words(1.8, Units::Meters), "1.8 m");
     }
 }

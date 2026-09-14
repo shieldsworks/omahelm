@@ -2,7 +2,7 @@
 //! the depth settings that decide what counts as shallow.
 //!
 //! The theme owns the ground: deep water is its background, text and lines
-//! its foreground. Colours that carry meaning at sea keep their meaning:
+//! its foreground. Colors that carry meaning at sea keep their meaning:
 //! a red buoy is red and a green one green whatever the theme calls red
 //! and green, so those come from the theme only when its hue is right.
 
@@ -68,7 +68,7 @@ impl Rgb {
     }
 }
 
-/// Every colour the chart draws with.
+/// Every color the chart draws with.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Palette {
     pub dark: bool,
@@ -97,7 +97,7 @@ pub struct Palette {
     pub blue: Rgb,
 }
 
-/// The standard colour for a hue family, and the hue range a theme colour
+/// The standard color for a hue family, and the hue range a theme color
 /// must fall in to stand for it.
 fn semantic(theme: Option<Rgb>, lo: f32, hi: f32, fallback: Rgb) -> Rgb {
     match theme {
@@ -115,7 +115,7 @@ fn semantic(theme: Option<Rgb>, lo: f32, hi: f32, fallback: Rgb) -> Rgb {
 }
 
 impl Palette {
-    /// The palette for a theme's colours (Omarchy's `colors.toml` keys).
+    /// The palette for a theme's colors (Omarchy's `colors.toml` keys).
     pub fn from_theme(colors: &HashMap<String, Rgb>) -> Palette {
         let bg = colors
             .get("background")
@@ -179,7 +179,7 @@ impl Palette {
         }
     }
 
-    /// The colours of a paper chart, for anyone who wants them.
+    /// The colors of a paper chart, for anyone who wants them.
     pub fn paper() -> Palette {
         let mut colors = HashMap::new();
         colors.insert("background".to_string(), Rgb(0xff, 0xff, 0xff));
@@ -195,12 +195,12 @@ impl Palette {
     }
 
     /// Night Watch: red on black whatever the theme, to keep night vision.
-    /// Every colour is a red, so marks are told apart by brightness, shape
+    /// Every color is a red, so marks are told apart by brightness, shape
     /// and label: a red buoy is bright, a green one dark, a yellow or white
     /// one pale, and green cans stay square, red nuns pointed.
     pub fn night() -> Palette {
         let bg = Rgb(0x0c, 0x04, 0x04);
-        let hex = |s: &str| Rgb::parse(s).expect("palette colour");
+        let hex = |s: &str| Rgb::parse(s).expect("palette color");
         Palette {
             dark: true,
             nodata: hex("#120606"),
@@ -265,23 +265,23 @@ pub fn home() -> PathBuf {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Units {
     Feet,
-    Metres,
+    Meters,
     Fathoms,
 }
 
 impl Units {
-    pub fn from_metres(self, m: f64) -> f64 {
+    pub fn from_meters(self, m: f64) -> f64 {
         match self {
             Units::Feet => m / 0.3048,
-            Units::Metres => m,
+            Units::Meters => m,
             Units::Fathoms => m / 1.8288,
         }
     }
 
-    pub fn to_metres(self, v: f64) -> f64 {
+    pub fn to_meters(self, v: f64) -> f64 {
         match self {
             Units::Feet => v * 0.3048,
-            Units::Metres => v,
+            Units::Meters => v,
             Units::Fathoms => v * 1.8288,
         }
     }
@@ -289,7 +289,7 @@ impl Units {
     pub fn name(self) -> &'static str {
         match self {
             Units::Feet => "feet",
-            Units::Metres => "metres",
+            Units::Meters => "meters",
             Units::Fathoms => "fathoms",
         }
     }
@@ -297,13 +297,13 @@ impl Units {
     pub fn short(self) -> &'static str {
         match self {
             Units::Feet => "ft",
-            Units::Metres => "m",
+            Units::Meters => "m",
             Units::Fathoms => "fm",
         }
     }
 }
 
-/// Depth settings, held in metres. The config file gives them in `units`.
+/// Depth settings, held in meters. The config file gives them in `units`.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub units: Units,
@@ -355,14 +355,14 @@ impl Settings {
         if let Some((_, v)) = values.iter().find(|(k, _)| k == "units") {
             match v.as_str() {
                 "feet" | "ft" => s.units = Units::Feet,
-                "metres" | "meters" | "m" => s.units = Units::Metres,
+                "meters" | "metres" | "m" => s.units = Units::Meters,
                 "fathoms" | "fm" => s.units = Units::Fathoms,
-                other => problems.push(format!("units: {other} is not feet, metres or fathoms")),
+                other => problems.push(format!("units: {other} is not feet, meters or fathoms")),
             }
         }
         for (k, v) in &values {
             let depth = |problems: &mut Vec<String>| match v.parse::<f64>() {
-                Ok(d) if (0.0..12_000.0).contains(&d) => Some(s.units.to_metres(d)),
+                Ok(d) if (0.0..12_000.0).contains(&d) => Some(s.units.to_meters(d)),
                 _ => {
                     problems.push(format!("{k}: {v} is not a depth"));
                     None
@@ -477,7 +477,7 @@ mod tests {
         let (s, problems) = Settings::parse(
             "safety_depth = 2\nunits = \"metres\"\nsafety_contour = 5 # boat\nbogus = 1\n",
         );
-        assert_eq!(s.units, Units::Metres);
+        assert_eq!(s.units, Units::Meters);
         assert_eq!(s.safety_depth, 2.0);
         assert_eq!(s.safety_contour, 5.0);
         assert_eq!(problems, vec!["unknown setting bogus".to_string()]);

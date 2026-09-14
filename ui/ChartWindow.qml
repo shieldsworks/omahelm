@@ -418,8 +418,8 @@ Item {
         return "WPT  " + Geo.degrees(Geo.bearing(fix.lat, fix.lon, waypoint.lat, waypoint.lon)) + "T "
             + Geo.nmText(nm) + (eta ? "  ETA " + eta : "");
     }
-    readonly property real barNm: Geo.niceNm(110 * map.metresPerPixel / 1852)
-    readonly property real barPx: barNm * 1852 / map.metresPerPixel
+    readonly property real barNm: Geo.niceNm(110 * map.metersPerPixel / 1852)
+    readonly property real barPx: barNm * 1852 / map.metersPerPixel
 
     // ------------------------------------------------------------ keys
 
@@ -763,9 +763,9 @@ Item {
                             ["h j k l  arrows", "pan"],
                             ["+  −  wheel", "zoom"],
                             ["drag", "pan"],
-                            ["click  i", "what's charted here (i: at the centre)"],
+                            ["click  i", "what's charted here (i: at the center)"],
                             ["f", "follow the boat"],
-                            ["c", "centre on the boat"],
+                            ["c", "center on the boat"],
                             ["w  right-click", "waypoint at the cursor"],
                             ["W", "clear the waypoint"],
                             ["b", "wind barbs from omawind: forecast, and measured on dots"],

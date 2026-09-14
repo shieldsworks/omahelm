@@ -12,7 +12,7 @@ pub type P = [f64; 2];
 pub enum Geom {
     None,
     Point(P),
-    /// Depths in metres.
+    /// Depths in meters.
     Soundings(Vec<(P, f32)>),
     Lines(Vec<Vec<P>>),
     Area {
@@ -80,7 +80,7 @@ pub struct Chart {
     /// Where the cell has data (M_COVR, CATCOV 1).
     pub coverage: Vec<Vec<P>>,
     pub items: Vec<Item>,
-    /// The depth contours the cell carries, in metres, shallow first.
+    /// The depth contours the cell carries, in meters, shallow first.
     pub contours: Vec<f64>,
 }
 
@@ -186,7 +186,7 @@ impl Chart {
 
     /// The contour that stands for the safety contour in this cell: the
     /// shallowest one at least as deep as wanted. Contours in NOAA cells
-    /// are feet converted to metres and rounded, so 12 ft may be 3.6 m.
+    /// are feet converted to meters and rounded, so 12 ft may be 3.6 m.
     pub fn safety_contour(&self, wanted: f64) -> f64 {
         self.contours
             .iter()

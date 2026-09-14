@@ -3,7 +3,7 @@
 The chartplotter for [Omahoy](https://github.com/shieldsworks/omahoy).
 
 Omahelm draws NOAA's electronic navigational charts in your Omarchy theme:
-soundings in feet, depth contours and shading, buoys and beacons labelled
+soundings in feet, depth contours and shading, buoys and beacons labeled
 the way a paper chart labels them (`G "3"`, `Fl G 4s 4M`), lights with
 their sectors, rocks, wrecks and isolated dangers, traffic lanes,
 anchorages and restricted areas. Your boat, its track and the AIS traffic
@@ -50,7 +50,7 @@ target/release/omahelm fetch US5OAKFI    # or a single cell
 
 Run `fetch` again to update: NOAA publishes corrections weekly. If you
 already have ENCs, `omahelm import FILE.zip` or `omahelm import DIR`.
-Charts go in `~/.local/share/omahelm/charts`. Cells NOAA has cancelled are
+Charts go in `~/.local/share/omahelm/charts`. Cells NOAA has canceled are
 skipped; `omahelm index` lists them.
 
 ## Use
@@ -60,9 +60,9 @@ skipped; `omahelm index` lists them.
 | `h` `j` `k` `l`, arrows | Pan |
 | `+` `-`, scroll | Zoom |
 | `f` | Follow the boat, or stop (it opens following; panning stops it) |
-| `c` | Centre on the boat once |
+| `c` | Center on the boat once |
 | Click | What's charted here |
-| `i` | What's charted at the centre |
+| `i` | What's charted at the center |
 | `w`, right-click | Set a waypoint: bearing, range and ETA from the boat |
 | `W` | Clear the waypoint |
 | `b` | Wind barbs, from [omawind](https://github.com/shieldsworks/omawind): the forecast, and the wind NOAA's stations measured |
@@ -77,7 +77,7 @@ pointer is and how far and which way it lies from the boat, and the scale.
 
 With the barbs on, the wind measured at NOAA's stations shows over the
 forecast: the buoys offshore, and the piers and tide gauges around the Bay.
-Each is a barb in the theme's accent colour on a dot, with its knots on the
+Each is a barb in the theme's accent color on a dot, with its knots on the
 far side: `7g11` is 7 knots gusting 11. Point at one for its name and how
 old the report is. They're for now only, so `]` to a forecast hour hides
 them.
@@ -87,23 +87,23 @@ them.
 `~/.config/omahelm/config.toml`, all optional:
 
 ```toml
-units = "feet"          # feet, metres or fathoms
+units = "feet"          # feet, meters or fathoms
 safety_depth = 10       # soundings this shallow or less are drawn bold
 shallow_contour = 6
 safety_contour = 12     # water shallower than this is shaded as unsafe
 deep_contour = 30
-palette = "theme"       # theme, or paper for the colours of a paper chart
+palette = "theme"       # theme, or paper for the colors of a paper chart
 ```
 
 Depths are in `units`. Omahelm uses the shallowest contour the chart has at
 or below your safety contour, the way S-52 does.
 
-The colours follow the Omarchy theme and change with it. Colours that mean
+The colors follow the Omarchy theme and change with it. Colors that mean
 something at sea don't: a green buoy stays green even if your theme's
 "green" is amber.
 
 Night Watch (`n`, or the NIGHT button) turns this window red on black, chart
-and all, whatever the theme. With every colour a red, marks are told apart
+and all, whatever the theme. With every color a red, marks are told apart
 by brightness, shape and label: red buoys are bright, green ones dark,
 yellow and white ones pale, and green cans stay square and red nuns
 pointed. It's off each time Omahelm starts, and it changes only this

@@ -62,7 +62,7 @@ impl TileKey {
 
 /// The cells a tile draws, coarse first. A cell is drawn while the view is
 /// at most four times smaller in scale than it was compiled for, so a
-/// harbour chart isn't drawn across a whole coast.
+/// harbor chart isn't drawn across a whole coast.
 pub fn cells_for<'a>(lib: &'a Library, rect: &Rect, display: f64) -> Vec<&'a Entry> {
     let mut all = lib.around(rect);
     all.sort_by(|a, b| b.scale.cmp(&a.scale).then(a.name.cmp(&b.name)));
@@ -202,8 +202,8 @@ fn clip(ring: &[(f64, f64)], x0: f64, y0: f64, x1: f64, y1: f64) -> Vec<(f64, f6
     out
 }
 
-/// Harbour-chart soundings show at twice their SCAMIN: NOAA hides them
-/// until 1:22,000, and a harbour without depths isn't much of a chart.
+/// Harbor-chart soundings show at twice their SCAMIN: NOAA hides them
+/// until 1:22,000, and a harbor without depths isn't much of a chart.
 /// Offshore soundings are dense enough already.
 fn sounding_scamin(scamin: f64) -> f64 {
     if scamin < 50_000.0 {
@@ -487,7 +487,7 @@ impl Canvas<'_> {
         }
     }
 
-    fn depth_colour(&self, item: &Item, safety: f64) -> Rgb {
+    fn depth_color(&self, item: &Item, safety: f64) -> Rgb {
         let pal = self.pal;
         let d1 = item.num(DRVAL1).unwrap_or(-1.0);
         let d2 = item.num(DRVAL2).unwrap_or(d1 + 0.01);
@@ -513,7 +513,7 @@ impl Canvas<'_> {
         };
         let pal = self.pal;
         let (c, alpha, aa) = match item.class {
-            DEPARE | DRGARE => (self.depth_colour(item, safety), 255, false),
+            DEPARE | DRGARE => (self.depth_color(item, safety), 255, false),
             UNSARE => (pal.nodata, 255, false),
             LNDARE => (pal.land, 255, false),
             LAKARE | RIVERS | CANALS | DOCARE => (pal.medium_shallow, 255, true),
@@ -677,7 +677,7 @@ impl Canvas<'_> {
         }
     }
 
-    fn aid_colour(&self, code: u32) -> Rgb {
+    fn aid_color(&self, code: u32) -> Rgb {
         let pal = self.pal;
         match code {
             1 => pal.white,
@@ -693,9 +693,9 @@ impl Canvas<'_> {
         }
     }
 
-    /// Fills a symbol in its colours: horizontal bands, or vertical
+    /// Fills a symbol in its colors: horizontal bands, or vertical
     /// stripes when the pattern says so.
-    fn painted(&mut self, at: Xy, body: &[Xy], colours: &[u32], pattern: Option<u32>) {
+    fn painted(&mut self, at: Xy, body: &[Xy], colors: &[u32], pattern: Option<u32>) {
         let s = self.s;
         let pts: Vec<(f64, f64)> = body
             .iter()
@@ -708,11 +708,9 @@ impl Canvas<'_> {
             x1 = x1.max(p.0);
             y1 = y1.max(p.1);
         }
-        let n = colours.len().max(1);
+        let n = colors.len().max(1);
         for i in 0..n {
-            let c = colours
-                .get(i)
-                .map_or(self.pal.faint, |&c| self.aid_colour(c));
+            let c = colors.get(i).map_or(self.pal.faint, |&c| self.aid_color(c));
             let (f0, f1) = (i as f64 / n as f64, (i + 1) as f64 / n as f64);
             let part = if pattern == Some(2) {
                 clip(
@@ -783,17 +781,17 @@ impl Canvas<'_> {
     fn beacon(&mut self, chart: &Chart, item: &Item) {
         let Geom::Point(p) = item.geom else { return };
         let at = self.px(p);
-        let colours = item.list(COLOUR);
+        let colors = item.list(COLOUR);
         if let Some(stem) = self.segments(at, &[((0.0, 0.0), (0.0, -8.0))]) {
             self.stroke(&stem, self.pal.ink, 1.2, &[]);
         }
         // US daymarks: green squares to port, red triangles to starboard.
-        let top: Vec<Xy> = match colours.first() {
+        let top: Vec<Xy> = match colors.first() {
             Some(4) => vec![(-3.8, -8.0), (3.8, -8.0), (3.8, -15.6), (-3.8, -15.6)],
             Some(3) => vec![(-4.4, -8.0), (4.4, -8.0), (0.0, -16.0)],
             _ => vec![(0.0, -7.5), (4.2, -11.8), (0.0, -16.1), (-4.2, -11.8)],
         };
-        self.painted(at, &top, &colours, item.first(COLPAT));
+        self.painted(at, &top, &colors, item.first(COLPAT));
         if let Some(c) = self.circle(at, 1.6) {
             self.stroke(&c, self.pal.ink, 0.8, &[]);
         }
@@ -847,19 +845,19 @@ impl Canvas<'_> {
         }
     }
 
-    fn light_colour(&self, item: &Item) -> Rgb {
+    fn light_color(&self, item: &Item) -> Rgb {
         match item.first(COLOUR) {
             Some(3) => self.pal.red,
             Some(4) => self.pal.green,
             Some(1 | 6) | None => self.pal.yellow,
-            Some(c) => self.aid_colour(c),
+            Some(c) => self.aid_color(c),
         }
     }
 
     fn light(&mut self, item: &Item) {
         let Geom::Point(p) = item.geom else { return };
         let at = self.px(p);
-        let c = self.light_colour(item);
+        let c = self.light_color(item);
         match (item.num(SECTR1), item.num(SECTR2)) {
             (Some(a), Some(b)) => self.sector(at, a, b, c),
             _ => {
@@ -894,7 +892,7 @@ impl Canvas<'_> {
         }
     }
 
-    /// A sector light: an arc in the light's colour across the bearings
+    /// A sector light: an arc in the light's color across the bearings
     /// it shows on. SECTR1 and SECTR2 are taken from seaward, so the arc
     /// runs from the light the other way.
     fn sector(&mut self, at: Xy, from: f64, to: f64, c: Rgb) {
@@ -1189,7 +1187,7 @@ impl Canvas<'_> {
         let units = self.set.units;
         let t = format!(
             "clr {} {}",
-            marks::trim_number(units.from_metres(v).round()),
+            marks::trim_number(units.from_meters(v).round()),
             units.short()
         );
         self.text(

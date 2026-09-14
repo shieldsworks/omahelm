@@ -15,8 +15,8 @@ function mercY(lat) {
 function lon(x) { return x * 360 - 180; }
 function lat(y) { return Math.atan(Math.sinh(Math.PI * (1 - 2 * y))) * 180 / Math.PI; }
 
-// Ground metres per logical pixel at a zoom level and latitude.
-function metresPerPixel(zoom, latDeg) {
+// Ground meters per logical pixel at a zoom level and latitude.
+function metersPerPixel(zoom, latDeg) {
     return EQUATOR_M * Math.cos(latDeg * Math.PI / 180) / (256 * Math.pow(2, zoom));
 }
 
@@ -66,7 +66,7 @@ function grouped(n) { return String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))
 // The chart scale on show, 1:27,000: two significant figures, as a
 // paper chart would print it.
 function scaleText(zoom, latDeg) {
-    var s = metresPerPixel(zoom, latDeg) / 0.00028;
+    var s = metersPerPixel(zoom, latDeg) / 0.00028;
     var mag = Math.pow(10, Math.max(0, Math.floor(Math.log(s) / Math.LN10) - 1));
     return "1:" + grouped(Math.round(s / mag) * mag);
 }

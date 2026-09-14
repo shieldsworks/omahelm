@@ -15,7 +15,7 @@ use std::time::UNIX_EPOCH;
 
 /// Bump when the index format changes.
 const INDEX_VERSION: u32 = 1;
-/// Cells kept in memory. A Bay tile at harbour scale needs about ten.
+/// Cells kept in memory. A Bay tile at harbor scale needs about ten.
 const CACHE: usize = 48;
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
