@@ -430,10 +430,10 @@ Item {
         var feathers = Math.floor(rest / 10);
         var half = rest % 10 >= 5;
         var at = len;
+        var flags = [];
         for (var p = 0; p < pennants; p++) {
-            ctx.moveTo(x + dx * at, y + dy * at);
-            ctx.lineTo(x + dx * at + rx * 9, y + dy * at + ry * 9);
-            ctx.lineTo(x + dx * (at - 5), y + dy * (at - 5));
+            flags.push([x + dx * at, y + dy * at, x + dx * at + rx * 9, y + dy * at + ry * 9,
+                        x + dx * (at - 5), y + dy * (at - 5)]);
             at -= 7;
         }
         for (var f = 0; f < feathers; f++) {
@@ -448,6 +448,17 @@ Item {
             ctx.lineTo(x + dx * (at + 1.5) + rx * 5, y + dy * (at + 1.5) + ry * 5);
         }
         ctx.stroke();
+        // Pennants are solid.
+        for (var t = 0; t < flags.length; t++) {
+            var q = flags[t];
+            ctx.beginPath();
+            ctx.moveTo(q[0], q[1]);
+            ctx.lineTo(q[2], q[3]);
+            ctx.lineTo(q[4], q[5]);
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+        }
     }
 
     Canvas {
@@ -467,6 +478,7 @@ Item {
             for (var k = 0; k < passes.length; k++) {
                 ctx.strokeStyle = passes[k][0];
                 ctx.lineWidth = passes[k][1];
+                ctx.fillStyle = passes[k][0];
                 for (var i = 0; i < points.length; i++) {
                     var p = points[i];
                     if (typeof p.lat !== "number" || typeof p.lon !== "number"

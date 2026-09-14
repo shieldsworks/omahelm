@@ -123,25 +123,30 @@ Item {
 
     // ---------------------------------------------------------- the wind
 
-    // omawind's wind barbs, now or whole hours ahead: b, [ and ].
+    // omawind's wind barbs, now or at a whole hour ahead: b, [ and ].
     property bool windOn: false
-    property int windHours: 0
+    // The hour chosen, as UTC milliseconds, or 0 for now. It's absolute,
+    // so the barbs stay right as the clock turns over.
+    property real windAt: 0
     property int windId: 0
     property var windField: null    // the last `field` asked for
     property string windError: ""
+    // Read by the bindings below that follow the clock.
+    property real minute: Date.now()
+    Timer { interval: 30000; repeat: true; running: app.windOn; onTriggered: app.minute = Date.now() }
 
-    // The top of the hour under way, `hours` ahead, as a protocol time.
-    function windTime(hours) {
-        var hour = Math.floor(Date.now() / 3600e3) * 3600e3 + hours * 3600e3;
-        return new Date(hour).toISOString().slice(0, 19) + "Z";
-    }
-    // How many hours ahead the forecast reaches.
-    function windReach() {
+    function hourNow() { return Math.floor(Date.now() / 3600e3) * 3600e3; }
+    function windLast() {
         var f = wind.forecast;
-        var last = f && typeof f.last === "string" ? Date.parse(f.last) : NaN;
-        if (isNaN(last)) return 0;
-        return Math.max(0, Math.floor((last - Math.floor(Date.now() / 3600e3) * 3600e3) / 3600e3));
+        var t = f && typeof f.last === "string" ? Date.parse(f.last) : NaN;
+        return isNaN(t) ? 0 : t;
     }
+    // Hours from the hour under way to the one chosen.
+    readonly property int windHours: {
+        void app.minute;
+        return windAt > 0 ? Math.round((windAt - hourNow()) / 3600e3) : 0;
+    }
+
     // Barbs for another hour or run mustn't stay up under a new label: an
     // answer still on its way is ignored, and the barbs go until the next.
     function forgetWind() {
@@ -152,14 +157,21 @@ Item {
         windOn = !windOn;
         windError = "";
         forgetWind();
-        if (!windOn) windHours = 0;
+        if (!windOn) windAt = 0;
         else windSettle.restart();
+    }
+    // An hour the clock has reached is now; one past the forecast's end is
+    // its last.
+    function clampWind(at) {
+        var now = hourNow(), last = windLast();
+        if (at > 0 && last && at > last) at = last;
+        return at > now ? at : 0;
     }
     function stepWind(d) {
         if (!windOn) windOn = true;
-        var next = Math.max(0, Math.min(windReach(), windHours + d));
-        if (next !== windHours) {
-            windHours = next;
+        var next = clampWind((windAt > 0 ? windAt : hourNow()) + d * 3600e3);
+        if (next !== windAt) {
+            windAt = next;
             forgetWind();
         }
         windSettle.restart();
@@ -167,12 +179,16 @@ Item {
     // The view and a margin around it, thinned to a barb every 70 pixels
     // or so.
     function requestWind() {
-        if (!windOn || !wind.connected || !wind.forecast || wind.forecast.status === "none"
-                || map.width <= 0 || map.height <= 0) return;
-        // Time moves on, and a new run may end sooner: never past the end.
-        var reach = windReach();
-        if (windHours > reach) {
-            windHours = reach;
+        if (!windOn || !wind.connected || map.width <= 0 || map.height <= 0) return;
+        var f = wind.forecast;
+        // Nothing to ask: no forecast, or one that has run out.
+        if (!f || f.status === "none" || f.status === "expired") {
+            forgetWind();
+            return;
+        }
+        var at = clampWind(windAt);
+        if (at !== windAt) {
+            windAt = at;
             forgetWind();
         }
         var w = map.width / map.world, h = map.height / map.world;
@@ -184,7 +200,7 @@ Item {
             type: "field", id: ++windId, south: south, west: west, north: north, east: east,
             max: Math.max(1, Math.min(2000, Math.floor(map.width * map.height / 4900)))
         };
-        if (windHours > 0) request.time = windTime(windHours);
+        if (windAt > 0) request.time = new Date(windAt).toISOString().slice(0, 19) + "Z";
         wind.send(request);
     }
     Timer { id: windSettle; interval: 150; onTriggered: app.requestWind() }
@@ -219,19 +235,17 @@ Item {
         function onHeightChanged() { if (app.windOn) windSettle.restart(); }
     }
     readonly property string windText: {
+        void app.minute;
         if (wind.incompatible) return "WIND  omawind speaks a newer protocol: update omahelm";
         if (!wind.connected) return "WIND  omawind isn't running";
         var f = wind.forecast;
         if (!f || f.status === "none") return "WIND  no forecast yet";
-        var when = windHours > 0
-            ? "+" + windHours + " h  " + Qt.formatDateTime(new Date(windTime(windHours)), "ddd HH:mm")
-            : "now";
         // The run the barbs on show came from, once they're in.
         var run = windField && typeof windField.run === "string" ? windField.run : f.run;
-        var out = "WIND " + when + "   HRRR " + Qt.formatDateTime(new Date(run), "HH:mm") + " run";
-        if (f.status === "old") out += ", old";
-        if (f.status === "expired") out += ", run out";
-        return out;
+        var runText = "HRRR " + Qt.formatDateTime(new Date(run), "HH:mm") + " run";
+        if (f.status === "expired") return "WIND  the " + runText + " has run out";
+        var when = windAt > 0 ? "+" + windHours + " h  " + Qt.formatDateTime(new Date(windAt), "ddd HH:mm") : "now";
+        return "WIND " + when + "   " + runText + (f.status === "old" ? ", old" : "");
     }
 
     // ---------------------------------------------------------- the view

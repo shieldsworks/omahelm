@@ -52,6 +52,9 @@ QtObject {
 
     onWantedChanged: {
         if (wanted && socket === null) {
+            // A new try: an engine that spoke another version may have
+            // been updated since.
+            incompatible = false;
             socket = socketFactory.createObject(wind);
         } else if (!wanted && socket !== null) {
             const previous = socket;
