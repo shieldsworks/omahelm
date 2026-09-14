@@ -21,7 +21,10 @@ QtObject {
     readonly property var forecast: state ? state.forecast : null
 
     signal field(var message)
+    signal point(var message)
     signal rejected(var message)
+
+    function num(v, lo, hi) { return typeof v === "number" && isFinite(v) && v >= lo && v <= hi; }
 
     function receive(line) {
         var m;
@@ -46,6 +49,8 @@ QtObject {
             if (Array.isArray(m.stations)) wind.stations = wind.drawable(m);
         } else if (m.type === "field") {
             if (Array.isArray(m.points)) wind.field(m);
+        } else if (m.type === "point") {
+            wind.point(wind.readable(m));
         } else if (m.type === "error") {
             wind.rejected(m);
         }
@@ -55,7 +60,6 @@ QtObject {
     // hang or break the chart: finite numbers in range, a direction left out
     // only in a calm, and text where the readout expects text.
     function drawable(m) {
-        function num(v, lo, hi) { return typeof v === "number" && isFinite(v) && v >= lo && v <= hi; }
         var kept = m.stations.filter(s => s !== null && typeof s === "object"
             && typeof s.id === "string" && typeof s.time === "string"
             && (s.name === undefined || typeof s.name === "string")
@@ -63,6 +67,22 @@ QtObject {
             && (s.dirDeg === undefined ? s.speedKn === 0 : num(s.dirDeg, 0, 360))
             && (s.gustKn === undefined || num(s.gustKn, 0, 300)));
         return Object.assign({}, m, {stations: kept});
+    }
+
+    // A `point` answer as the card can show it: its wind only when the
+    // numbers are in range, and text only where text is expected.
+    function readable(m) {
+        var out = {id: m.id,
+                   time: typeof m.time === "string" ? m.time : "",
+                   run: typeof m.run === "string" ? m.run : "",
+                   note: typeof m.note === "string" ? m.note : ""};
+        if (num(m.speedKn, 0, 250) && num(m.dirDeg, 0, 360)
+            && (m.gustKn === undefined || num(m.gustKn, 0, 300))) {
+            out.speedKn = m.speedKn;
+            out.dirDeg = m.dirDeg;
+            if (m.gustKn !== undefined) out.gustKn = m.gustKn;
+        }
+        return out;
     }
 
     function send(message) {

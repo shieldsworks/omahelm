@@ -114,12 +114,14 @@ Item {
         cardAt = Qt.point(x, y);
         cardOpen = true;
         map.mark = {lat: lat, lon: lon};
+        askPoint(true);
         if (!helm.connected) { result = {features: [], lost: true}; return; }
         helm.send({type: "query", id: queryId, lat: lat, lon: lon, zoom: Math.round(map.zoom)});
     }
     function closeCard() {
         cardOpen = false;
         map.mark = null;
+        askPoint(true);
     }
     function setWaypoint(lat, lon) {
         waypoint = {lat: lat, lon: lon};
@@ -144,6 +146,7 @@ Item {
     // The hour chosen, as UTC milliseconds, or 0 for now. It's absolute,
     // so the barbs stay right as the clock turns over.
     property real windAt: 0
+    onWindAtChanged: if (cardOpen) askPoint(true)
     property int windId: 0
     property var windField: null    // the last `field` asked for
     property string windError: ""
@@ -203,11 +206,7 @@ Item {
             : here && typeof here.speedKn === "number" && isFinite(here.speedKn)
               && typeof here.dirDeg === "number" && isFinite(here.dirDeg) ? here : null;
         var when = windAt > 0 ? Qt.formatDateTime(new Date(windAt), "ddd HH:mm") : "Now";
-        if (!h) return when;
-        var kn = Math.round(h.speedKn);
-        var gust = typeof h.gustKn === "number" && isFinite(h.gustKn) && Math.round(h.gustKn) > kn
-            ? "G" + Math.round(h.gustKn) : "";
-        return when + "   " + Geo.degrees(h.dirDeg) + "T " + kn + gust + " kn";
+        return h ? when + "   " + windWords(h) : when;
     }
     readonly property string scrubWhere: wind.state && wind.state.here && wind.state.here.at === "home"
         ? "forecast at home" : "forecast at the boat"
@@ -227,6 +226,7 @@ Item {
             windPlaying = false;
             windPlayPending = false;
         } else windSettle.restart();
+        askPoint(true);
     }
     // An hour the clock has reached is now; one past the forecast's end is
     // its last.
@@ -339,7 +339,7 @@ Item {
         var request = {type: "field", id: id, south: area.south, west: area.west, north: area.north,
                        east: area.east, max: area.max};
         if (at > 0) {
-            request.time = new Date(at).toISOString().slice(0, 19) + "Z";
+            request.time = utc(at);
             windAsked[id] = String(at);
         }
         wind.send(request);
@@ -381,6 +381,8 @@ Item {
         if (windCache[key] || Object.keys(windAsked).some(id => windAsked[id] === key)) return;
         askWind(area, Number(key), "ahead" + (++windAhead));
     }
+    // An hour as omawind takes it, in UTC.
+    function utc(at) { return new Date(at).toISOString().slice(0, 19) + "Z"; }
     Timer { id: windSettle; interval: 150; onTriggered: app.requestWind() }
     Connections {
         target: app.wind
@@ -395,8 +397,19 @@ Item {
             app.windField = m;
             app.windError = "";
         }
+        function onPoint(m) {
+            if (m.id !== "point" + app.pointId) return;
+            app.cardWind = m;
+            app.cardWindError = "";
+        }
         // Said once, not at every minute's new request.
         function onRejected(m) {
+            // The card's question: said on the card.
+            if (m.id === "point" + app.pointId) {
+                app.cardWind = null;
+                app.cardWindError = String(m.message || "");
+                return;
+            }
             delete app.windAsked[m.id];
             if (m.id !== app.windId) return;
             app.windField = null;
@@ -413,6 +426,7 @@ Item {
                 app.windPlayPending = false;
                 app.togglePlay();
             }
+            if (app.cardOpen && app.windOn) app.refreshPoint();
         }
     }
     Connections {
@@ -443,23 +457,101 @@ Item {
         var when = windAt > 0 ? "+" + windHours + " h  " + Qt.formatDateTime(new Date(windAt), "ddd HH:mm") : "now";
         return "WIND " + when + "   " + runText + (f.status === "old" ? ", old" : "") + measured;
     }
-    // A station under the pointer: its name, wind as the bar puts it
-    // (`110°T 3G4 kn`), and when it was taken.
+    // Wind as the bar puts it, `110°T 3G4 kn`, or calm with no direction.
+    function windWords(h) {
+        if (typeof h.dirDeg !== "number") return "calm";
+        var kn = Math.round(h.speedKn);
+        var gust = typeof h.gustKn === "number" && isFinite(h.gustKn) && Math.round(h.gustKn) > kn
+            ? "G" + Math.round(h.gustKn) : "";
+        return Geo.degrees(h.dirDeg) + "T " + kn + gust + " kn";
+    }
+    // When a station's report was taken: `at 17:00, 12 min ago`.
+    function reportAge(s) {
+        var t = Date.parse(s.time);
+        if (isNaN(t)) return "";
+        var ago = Math.max(0, Math.round((Date.now() - t) / 60000));
+        return "at " + Qt.formatDateTime(new Date(t), "HH:mm") + ", " + ago + " min ago";
+    }
+    // A station under the pointer: its name, its wind, and when.
     function stationText(s) {
         void app.minute;
-        var out = (s.name || s.id) + "  ";
-        if (typeof s.dirDeg !== "number") out += "calm";
-        else {
-            var kn = Math.round(s.speedKn);
-            var gust = typeof s.gustKn === "number" && Math.round(s.gustKn) > kn ? "G" + Math.round(s.gustKn) : "";
-            out += Geo.degrees(s.dirDeg) + "T " + kn + gust + " kn";
+        var age = reportAge(s);
+        return (s.name || s.id) + "  " + windWords(s) + (age ? "  " + age : "");
+    }
+
+    // The wind on the card, with the barbs on: the forecast where the card
+    // was asked, for the hour on show, and the nearest station's for now.
+    property int pointId: 0
+    property var cardWind: null     // the last `point`, or null while asking
+    property string cardWindError: ""
+    // What the last `point` was asked under, so a state that brings only a
+    // new fix doesn't ask again.
+    property string pointKey: ""
+    function pointKeyNow() {
+        var f = wind.forecast;
+        return (f ? f.run + "|" + f.status + "|" + JSON.stringify(f.region) : "")
+            + "|" + (windAt > 0 ? windAt : Math.floor(Date.now() / 60000));
+    }
+    // `fresh` forgets the last answer, for a new place or hour; a refresh
+    // leaves it up until the next.
+    function askPoint(fresh) {
+        pointId += 1;
+        pointKey = "";
+        if (fresh) {
+            cardWind = null;
+            cardWindError = "";
         }
-        var t = Date.parse(s.time);
-        if (!isNaN(t)) {
-            var ago = Math.max(0, Math.round((Date.now() - t) / 60000));
-            out += "  at " + Qt.formatDateTime(new Date(t), "HH:mm") + ", " + ago + " min ago";
+        var f = wind.forecast;
+        if (!cardOpen || !map.mark || !windOn || !wind.connected
+            || !f || f.status === "none" || f.status === "expired") return;
+        var request = {type: "point", id: "point" + pointId, lat: map.mark.lat, lon: map.mark.lon};
+        if (windAt > 0) request.time = utc(windAt);
+        pointKey = pointKeyNow();
+        wind.send(request);
+    }
+    // Asked again once the run, or for now the minute, has moved on.
+    function refreshPoint() { if (pointKey !== pointKeyNow()) askPoint(false); }
+    readonly property string cardForecastText: {
+        if (wind.incompatible) return "omawind speaks a newer protocol: update omahelm";
+        if (!wind.connected) return "omawind isn't running";
+        var f = wind.forecast;
+        if (!f || f.status === "none") return "No forecast yet";
+        if (f.status === "expired") return "The forecast has run out";
+        if (cardWindError)
+            return cardWindError.startsWith("unknown type") ? "Update omawind to see it here" : cardWindError;
+        if (!cardWind) return "Asking omawind…";
+        if (typeof cardWind.speedKn !== "number")
+            return cardWind.note ? cardWind.note.charAt(0).toUpperCase() + cardWind.note.slice(1) : "No forecast here";
+        return windWords(cardWind);
+    }
+    // The hour it's for, and the run it came from. The answer shown is
+    // always for the hour last asked, so that's the one named.
+    readonly property string cardForecastWhen: {
+        if (!cardWind || typeof cardWind.speedKn !== "number") return "";
+        var run = Date.parse(cardWind.run);
+        var when = windAt > 0 ? Qt.formatDateTime(new Date(windAt), "ddd HH:mm") : "Now";
+        return when + (isNaN(run) ? "" : ", from the " + Qt.formatDateTime(new Date(run), "HH:mm") + " run");
+    }
+    // The station nearest the card's place, within 10 nm, for now only:
+    // {station, nm}, or null.
+    readonly property var cardStation: {
+        var p = map.mark;
+        if (!cardOpen || !p || windAt > 0) return null;
+        var best = null;
+        for (var i = 0; i < windStations.length; i++) {
+            var s = windStations[i], nm = Geo.rangeNm(p.lat, p.lon, s.lat, s.lon);
+            if (nm <= 10 && (!best || nm < best.nm)) best = {station: s, nm: nm};
         }
-        return out;
+        return best;
+    }
+    // How far off it is, which way, and when it measured.
+    readonly property string cardStationWhere: {
+        void app.minute;
+        var c = cardStation, p = map.mark;
+        if (!c || !p) return "";
+        var age = reportAge(c.station);
+        return Geo.nmText(c.nm) + " " + Geo.degrees(Geo.bearing(p.lat, p.lon, c.station.lat, c.station.lon))
+            + "T from here" + (age ? ", " + age : "");
     }
 
     // ---------------------------------------------------------- the view
@@ -679,6 +771,8 @@ Item {
                                    night: app.theme.night, nightTiles: map.nightTiles,
                                    barbs: app.windField ? app.windField.points.length : -1,
                                    stations: app.windStations.length,
+                                   cardWind: app.windOn && app.cardOpen ? app.cardForecastText : "",
+                                   cardStation: app.cardStation ? app.cardStation.station.id : "",
                                    hoverStation: map.hoverStation ? map.hoverStation.id : ""});
         }
     }
@@ -1058,6 +1152,65 @@ Item {
                     y: 10
                     width: parent.width - 20
                     spacing: 8
+                    // The wind there, with the barbs on: the forecast for the
+                    // hour on show, then the nearest station's, for now.
+                    Column {
+                        visible: app.windOn
+                        width: cardColumn.width
+                        spacing: 1
+                        Label {
+                            width: parent.width
+                            text: "Wind forecast  ·  HRRR"
+                            color: Qt.alpha(app.theme.foreground, 0.65)
+                            font.pixelSize: app.theme.baseSize - 2
+                        }
+                        Text {
+                            width: parent.width
+                            text: app.cardForecastText
+                            textFormat: Text.PlainText
+                            color: app.theme.foreground
+                            font.family: app.theme.font
+                            font.pixelSize: app.theme.baseSize
+                            font.bold: true
+                            wrapMode: Text.Wrap
+                        }
+                        Label {
+                            width: parent.width
+                            visible: text !== ""
+                            text: app.cardForecastWhen
+                            font.pixelSize: app.theme.baseSize - 1
+                        }
+                    }
+                    Column {
+                        visible: app.windOn && !!app.cardStation
+                        width: cardColumn.width
+                        spacing: 1
+                        Label {
+                            width: parent.width
+                            text: {
+                                var s = app.cardStation ? app.cardStation.station : null;
+                                return "Measured  ·  " + (!s ? "" : s.name ? s.name + " (" + s.id + ")" : s.id);
+                            }
+                            color: Qt.alpha(app.theme.foreground, 0.65)
+                            font.pixelSize: app.theme.baseSize - 2
+                        }
+                        Label {
+                            width: parent.width
+                            text: app.cardStation ? app.windWords(app.cardStation.station) : ""
+                            font.bold: true
+                        }
+                        Label {
+                            width: parent.width
+                            text: app.cardStationWhere
+                            font.pixelSize: app.theme.baseSize - 1
+                        }
+                    }
+                    Rectangle {
+                        visible: app.windOn
+                        width: cardColumn.width
+                        height: 1
+                        color: Qt.alpha(app.theme.foreground, 0.18)
+                    }
                     Label {
                         visible: !app.result
                         text: "Looking…"
@@ -1132,7 +1285,7 @@ Item {
                             ["h j k l  arrows", "pan"],
                             ["+  −  wheel", "zoom"],
                             ["drag", "pan"],
-                            ["click  i", "what's charted here (i: at the center)"],
+                            ["click  i", "what's charted here, and its wind (i: the center)"],
                             ["f", "follow the boat"],
                             ["c", "center on the boat"],
                             ["w  right-click", "waypoint at the cursor"],
