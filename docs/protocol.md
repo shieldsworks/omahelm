@@ -35,7 +35,8 @@ replace their copy.
  "charts":{"status":"ok","cells":387,"skipped":43,
            "root":"/home/casey/.local/share/omahelm/charts",
            "extent":{"west":-124.6,"south":32.3,"east":-117.1,"north":42.1}},
- "tiles":{"root":"/home/casey/.cache/omahelm/tiles/3f9a1c2e5d7b8a90/","generation":"3f9a1c2e5d7b8a90"},
+ "tiles":{"root":"/home/casey/.cache/omahelm/tiles/3f9a1c2e5d7b8a90/","generation":"3f9a1c2e5d7b8a90",
+          "night":{"root":"/home/casey/.cache/omahelm/tiles/9c04e7d1a2b3f586/","generation":"9c04e7d1a2b3f586"}},
  "settings":{"units":"feet","safetyDepth":10,"shallowContour":6,"safetyContour":12,
              "deepContour":30,"palette":"theme"},
  "problems":["config.toml: unknown setting bogus"]}
@@ -50,6 +51,9 @@ replace their copy.
   relative to it. It changes, with `generation`, whenever the drawing would:
   the theme, the settings, the charts, or the renderer. A client drops the
   tiles it holds when `generation` changes and asks again.
+- `tiles.night` is the same for the Night Watch look: red on black whatever
+  the theme. It changes with the settings, the charts and the renderer, but
+  not the theme. An engine without it draws only the theme's look.
 - `settings` are in `units`: the depths as the user wrote them in
   `~/.config/omahelm/config.toml`.
 - `problems` are human-readable, for display. Absent when there are none.
@@ -62,10 +66,12 @@ of the request first.
  "path":"15/5249/12655@2.png"}
 ```
 
-- `path` is relative to `tiles.root` and has the form
-  `<z>/<x>/<y>@<scale>.png`. The file is complete before the message is sent.
+- `path` has the form `<z>/<x>/<y>@<scale>.png`. It is relative to the root
+  of the look asked for: `tiles.root`, or `tiles.night.root` for a
+  `"look":"night"` request. The two hold the same paths drawn differently.
+  The file is complete before the message is sent.
 - `generation` is the look the tile was drawn in. A client ignores a tile
-  whose `generation` isn't the one in its latest `state`.
+  whose `generation` isn't the one it asked for in its latest `state`.
 - A tile that couldn't be drawn has `error` instead of `path`.
 - Tiles for a request that was replaced are not sent, except those already
   on their way.
@@ -106,6 +112,8 @@ It replaces the client's previous `tiles` request.
   `2^z` tiles. At most 256 tiles.
 - `scale` is device pixels per logical pixel, 1 to 4. A tile is
   `256 × scale` pixels square.
+- `look` is `"night"` for Night Watch tiles, or left out for the theme's.
+  Each client chooses its own.
 
 `query` asks what's charted at a point, as seen at a zoom level: features
 within about 10 logical pixels, and the areas that contain the point.

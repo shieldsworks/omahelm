@@ -194,6 +194,40 @@ impl Palette {
         p
     }
 
+    /// Night Watch: red on black whatever the theme, to keep night vision.
+    /// Every colour is a red, so marks are told apart by brightness, shape
+    /// and label: a red buoy is bright, a green one dark, a yellow or white
+    /// one pale, and green cans stay square, red nuns pointed.
+    pub fn night() -> Palette {
+        let bg = Rgb(0x0c, 0x04, 0x04);
+        let hex = |s: &str| Rgb::parse(s).expect("palette colour");
+        Palette {
+            dark: true,
+            nodata: hex("#120606"),
+            deep: bg,
+            // Water stays dark, land stands clear of it.
+            medium_deep: hex("#110504"),
+            medium_shallow: hex("#170605"),
+            very_shallow: hex("#1f0807"),
+            drying: hex("#2c0c09"),
+            land: hex("#4a170f"),
+            built: hex("#4e1910"),
+            structure: hex("#6e1e16"),
+            ink: hex("#c8402f"),
+            faint: hex("#7a2418"),
+            contour: hex("#5a1a12"),
+            magenta: hex("#a8302a"),
+            red: hex("#ff3b2f"),
+            // Dark, but clear of the water and the contours.
+            green: hex("#7c2117"),
+            yellow: hex("#ffa28a"),
+            white: hex("#ffb8a4"),
+            black: hex("#050101"),
+            orange: hex("#ff6b5a"),
+            blue: hex("#3a100c"),
+        }
+    }
+
     /// A short fingerprint, so cached tiles change when the palette does.
     pub fn key(&self) -> String {
         format!("{self:?}")
@@ -397,6 +431,45 @@ mod tests {
         let (water_hue, _) = p.blue.hue();
         assert!((180.0..250.0).contains(&water_hue));
         assert_eq!(p.deep, Rgb::parse("#121212").unwrap());
+    }
+
+    #[test]
+    fn night_is_all_red() {
+        let p = Palette::night();
+        let all = [
+            p.nodata,
+            p.deep,
+            p.medium_deep,
+            p.medium_shallow,
+            p.very_shallow,
+            p.drying,
+            p.land,
+            p.built,
+            p.structure,
+            p.ink,
+            p.faint,
+            p.contour,
+            p.magenta,
+            p.red,
+            p.green,
+            p.yellow,
+            p.white,
+            p.black,
+            p.orange,
+            p.blue,
+        ];
+        for c in all {
+            let (h, _) = c.hue();
+            assert!(!(20.0..340.0).contains(&h), "{} isn't a red", c.hex());
+        }
+        // Red and green marks must still differ at a glance.
+        assert!(p.red.luminance() > 4.0 * p.green.luminance());
+        // Shallower water is lighter, as by day.
+        assert!(p.deep.luminance() < p.medium_deep.luminance());
+        assert!(p.medium_deep.luminance() < p.medium_shallow.luminance());
+        assert!(p.medium_shallow.luminance() < p.very_shallow.luminance());
+        // Land is never mistaken for shallow water.
+        assert!(p.land.luminance() > 2.0 * p.very_shallow.luminance());
     }
 
     #[test]

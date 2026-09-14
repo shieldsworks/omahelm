@@ -67,6 +67,7 @@ skipped; `omahelm index` lists them.
 | `W` | Clear the waypoint |
 | `b` | Wind barbs, from [omawind](https://github.com/shieldsworks/omawind) |
 | `[` `]` | The wind an hour earlier, later |
+| `n` | Night Watch: red on black, to keep your night vision |
 | `?` | Keys |
 | `Esc` | Close a card |
 | `q` | Close |
@@ -93,6 +94,13 @@ or below your safety contour, the way S-52 does.
 The colours follow the Omarchy theme and change with it. Colours that mean
 something at sea don't: a green buoy stays green even if your theme's
 "green" is amber.
+
+Night Watch (`n`, or the NIGHT button) turns this window red on black, chart
+and all, whatever the theme. With every colour a red, marks are told apart
+by brightness, shape and label: red buoys are bright, green ones dark,
+yellow and white ones pale, and green cans stay square and red nuns
+pointed. It's off each time Omahelm starts, and it changes only this
+window, so Omalookout beside it can stay as it is.
 
 ## How it works
 

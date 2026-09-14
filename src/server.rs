@@ -62,17 +62,32 @@ struct Client {
 struct Job {
     client: u64,
     key: TileKey,
+    night: bool,
     generation: String,
 }
 
-/// Everything that decides how tiles look, swapped whole when it changes.
-struct View {
-    library: Arc<Library>,
+/// One way of drawing the charts, with its own tile directory.
+struct Look {
     style: Arc<Style>,
     generation: String,
     tiles: PathBuf,
+}
+
+/// Everything that decides how tiles look, swapped whole when it changes.
+/// Two looks are kept, the theme's and Night Watch's, so each window can
+/// choose its own.
+struct View {
+    library: Arc<Library>,
+    day: Look,
+    night: Look,
     problems: Vec<String>,
     indexing: Option<(usize, usize)>,
+}
+
+impl View {
+    fn look(&self, night: bool) -> &Look {
+        if night { &self.night } else { &self.day }
+    }
 }
 
 struct Engine {
@@ -154,6 +169,20 @@ impl Engine {
         if self.font.is_none() {
             problems.push("No font found: charts are drawn without soundings or names.".into());
         }
+        let night = Style {
+            palette: Palette::night(),
+            settings: style.settings.clone(),
+        };
+        View {
+            day: self.make_look(style, &library),
+            night: self.make_look(night, &library),
+            library,
+            problems,
+            indexing,
+        }
+    }
+
+    fn make_look(&self, style: Style, library: &Library) -> Look {
         let mut h = Fnv::default();
         h.write(style.key().as_bytes());
         h.write(library.fingerprint().as_bytes());
@@ -164,20 +193,17 @@ impl Engine {
                 .as_bytes(),
         );
         let generation = format!("{:016x}", h.0);
-        View {
+        Look {
             tiles: cache_dir().join(&generation),
-            library,
             style: Arc::new(style),
             generation,
-            problems,
-            indexing,
         }
     }
 
     fn state(&self) -> String {
         let view = self.view.read().expect("view lock").clone();
         let lib = &view.library;
-        let set = &view.style.settings;
+        let set = &view.day.style.settings;
         let u = set.units;
         let round = |m: f64| (u.from_metres(m) * 10.0).round() / 10.0;
         let mut charts = json!({
@@ -195,12 +221,14 @@ impl Engine {
             let (east, south) = geo::lon_lat([e.x1, e.y1]);
             charts["extent"] = json!({"west": west, "south": south, "east": east, "north": north});
         }
-        let mut root = view.tiles.display().to_string();
-        root.push('/');
+        let root = |look: &Look| format!("{}/", look.tiles.display());
         let mut state = json!({
             "type": "state", "v": VERSION,
             "charts": charts,
-            "tiles": {"root": root, "generation": view.generation},
+            "tiles": {
+                "root": root(&view.day), "generation": view.day.generation,
+                "night": {"root": root(&view.night), "generation": view.night.generation},
+            },
             "settings": {
                 "units": u.name(),
                 "safetyDepth": round(set.safety_depth),
@@ -243,13 +271,22 @@ impl Engine {
     fn set_view(&self, view: View) {
         let old = std::mem::replace(&mut *self.view.write().expect("view lock"), Arc::new(view));
         let new = self.view.read().expect("view lock").clone();
-        if old.generation != new.generation {
-            prune(&cache_dir(), &[&new.generation, &old.generation]);
-            // Queued tiles of the old look are no use to anyone.
+        if old.day.generation != new.day.generation || old.night.generation != new.night.generation
+        {
+            prune(
+                &cache_dir(),
+                &[
+                    &new.day.generation,
+                    &new.night.generation,
+                    &old.day.generation,
+                    &old.night.generation,
+                ],
+            );
+            // Queued tiles of an old look are no use to anyone.
             self.queue
                 .lock()
                 .expect("queue lock")
-                .retain(|j| j.generation == new.generation);
+                .retain(|j| j.generation == new.look(j.night).generation);
         }
         self.broadcast(self.state());
     }
@@ -340,12 +377,19 @@ pub fn serve(charts: PathBuf) -> Result<(), String> {
     std::fs::create_dir_all(&charts).map_err(|e| format!("{}: {e}", charts.display()))?;
 
     let font = Font::load();
+    let unset = |palette| Look {
+        style: Arc::new(Style {
+            palette,
+            settings: Settings::default(),
+        }),
+        generation: String::new(),
+        tiles: cache_dir(),
+    };
     let engine = Arc::new(Engine {
         view: RwLock::new(Arc::new(View {
             library: Arc::new(Library::empty(&charts)),
-            style: Arc::new(load_style().0),
-            generation: String::new(),
-            tiles: cache_dir(),
+            day: unset(load_style().0.palette),
+            night: unset(Palette::night()),
             problems: Vec::new(),
             indexing: Some((0, 0)),
         })),
@@ -452,21 +496,29 @@ fn worker(engine: &Arc<Engine>) {
         };
         *engine.busy.lock().expect("busy lock") = Instant::now();
         let view = engine.view.read().expect("view lock").clone();
-        if view.generation != job.generation {
+        let look = view.look(job.night);
+        if look.generation != job.generation {
             continue;
         }
         let rel = tile_path(&job.key);
-        let file = view.tiles.join(&rel);
+        let file = look.tiles.join(&rel);
         let result = if file.exists() {
             Ok(())
         } else {
-            render::render(&view.library, &view.style, engine.font.as_ref(), job.key)
+            render::render(&view.library, &look.style, engine.font.as_ref(), job.key)
                 .and_then(|pm| render::png(&pm))
                 .and_then(|bytes| write_atomic(&file, &bytes))
         };
         // The look may have changed while this tile was drawn; the client
         // has the new state and asks again.
-        if engine.view.read().expect("view lock").generation != job.generation {
+        if engine
+            .view
+            .read()
+            .expect("view lock")
+            .look(job.night)
+            .generation
+            != job.generation
+        {
             continue;
         }
         let message = match result {
@@ -609,7 +661,9 @@ fn tiles(engine: &Arc<Engine>, id: u64, m: &Value) -> Result<(), String> {
     if !(1..=4).contains(&scale) {
         return Err("scale must be 1 to 4".into());
     }
+    let night = wants_night(m)?;
     let view = engine.view.read().expect("view lock").clone();
+    let look = view.look(night);
     let (cx, cy) = ((x0 + x1) as f64 / 2.0, (y0 + y1) as f64 / 2.0);
     let mut keys: Vec<TileKey> = (y0..=y1)
         .flat_map(|y| (x0..=x1).map(move |x| (x, y)))
@@ -628,21 +682,31 @@ fn tiles(engine: &Arc<Engine>, id: u64, m: &Value) -> Result<(), String> {
     q.retain(|j| j.client != id);
     for key in keys {
         let rel = tile_path(&key);
-        if view.tiles.join(&rel).exists() {
+        if look.tiles.join(&rel).exists() {
             drop(q);
-            engine.send(id, tile_message(&key, &view.generation, Some(&rel), None));
+            engine.send(id, tile_message(&key, &look.generation, Some(&rel), None));
             q = engine.queue.lock().expect("queue lock");
         } else {
             q.push_back(Job {
                 client: id,
                 key,
-                generation: view.generation.clone(),
+                night,
+                generation: look.generation.clone(),
             });
         }
     }
     drop(q);
     engine.ready.notify_all();
     Ok(())
+}
+
+/// A request's `look`: absent for the theme's, `night` for Night Watch.
+fn wants_night(m: &Value) -> Result<bool, String> {
+    match m.get("look") {
+        None => Ok(false),
+        Some(Value::String(s)) if s == "night" => Ok(true),
+        Some(_) => Err("look must be \"night\" or left out".into()),
+    }
 }
 
 fn number(m: &Value, key: &str) -> Result<f64, String> {
@@ -660,7 +724,7 @@ fn query(engine: &Arc<Engine>, m: &Value) -> Result<Value, String> {
         return Err("position out of range".into());
     }
     let view = engine.view.read().expect("view lock").clone();
-    let features = features_at(&view.library, &view.style.settings, lat, lon, zoom);
+    let features = features_at(&view.library, &view.day.style.settings, lat, lon, zoom);
     let mut reply =
         json!({"type": "features", "v": VERSION, "lat": lat, "lon": lon, "features": features});
     if let Some(id) = m.get("id") {
@@ -940,6 +1004,14 @@ mod tests {
         assert_eq!(m["type"], "tile");
         assert_eq!(m["path"], "p");
         assert!(m.get("error").is_none());
+    }
+
+    #[test]
+    fn look_is_night_or_left_out() {
+        assert_eq!(wants_night(&json!({"type": "tiles"})), Ok(false));
+        assert_eq!(wants_night(&json!({"look": "night"})), Ok(true));
+        assert!(wants_night(&json!({"look": "day"})).is_err());
+        assert!(wants_night(&json!({"look": true})).is_err());
     }
 
     #[test]

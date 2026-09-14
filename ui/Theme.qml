@@ -12,6 +12,13 @@ QtObject {
     readonly property string shellConfig: Quickshell.env("HOME") + "/.config/omarchy/shell.toml"
     property var colors: ({})
     property var shellValues: ({})
+    // Night Watch: red on black whatever the theme, to keep night vision.
+    // Off at every start; this window's own, not the desktop's.
+    property bool night: false
+    readonly property var nightWatch: ({
+        background: "#0c0404", foreground: "#e8503f", accent: "#ff3b2f",
+        red: "#ff3b2f", yellow: "#ffa28a"
+    })
 
     // `key = "value"` and `key = 12` lines, keyed section.key. Enough for
     // colors.toml and shell.toml; not a general TOML reader.
@@ -34,7 +41,7 @@ QtObject {
         return out;
     }
     function color(key, fallback) {
-        var v = colors[key];
+        var v = night ? nightWatch[key] : colors[key];
         return typeof v === "string" && /^#[0-9a-fA-F]{6}$/.test(v) ? v : fallback;
     }
 

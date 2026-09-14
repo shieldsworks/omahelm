@@ -81,6 +81,21 @@ Item {
         follow = true;
         map.lookAt(fix.lat, fix.lon);
     }
+    // Night Watch for this window only; the chart goes red with it once the
+    // engine has drawn it.
+    function toggleNight() {
+        theme.night = !theme.night;
+        nightWarned = false;
+        warnNight();
+    }
+    // Said once when night meets an engine that draws only the theme's
+    // tiles, whether night or the engine came first.
+    property bool nightWarned: false
+    function warnNight() {
+        var old = theme.night && !!helm.state && !helm.state.tiles.night;
+        if (old && !nightWarned) toast("Red chart needs a newer engine: quit omahelm serve and reopen");
+        nightWarned = old;
+    }
     function centerOnBoat() {
         if (!hasPosition) { toast(keel.incompatible ? "omakeel speaks a newer protocol: update omahelm" : keel.connected ? "No position from the GPS yet" : "No GPS: omakeel isn't running"); return; }
         map.lookAt(fix.lat, fix.lon);
@@ -116,7 +131,7 @@ Item {
         function onTile(m) { map.tileArrived(m); }
         function onFeatures(m) { if (m.id === app.queryId) app.result = m; }
         function onRejected(message) { app.toast(message); }
-        function onStateChanged() { app.placeCamera(); }
+        function onStateChanged() { app.placeCamera(); app.warnNight(); }
         // A question the engine can no longer answer.
         function onConnectedChanged() { if (!app.helm.connected && app.cardOpen && app.result === null) app.result = {features: [], lost: true}; }
     }
@@ -386,6 +401,8 @@ Item {
         var t = e.key === Qt.Key_Escape ? "Escape"
             : e.key === Qt.Key_Left ? "h" : e.key === Qt.Key_Right ? "l"
             : e.key === Qt.Key_Up ? "k" : e.key === Qt.Key_Down ? "j" : e.text;
+        // A held n would flicker between palettes.
+        if (t === "n" && e.isAutoRepeat) { e.accepted = true; return; }
         e.accepted = run(t);
     }
 
@@ -413,6 +430,7 @@ Item {
             else setWaypoint(map.centerLat, map.centerLon);
         }
         else if (t === "W") { waypoint = null; }
+        else if (t === "n") toggleNight();
         else if (t === "b") toggleWind();
         else if (t === "]") stepWind(1);
         else if (t === "[") stepWind(-1);
@@ -452,6 +470,7 @@ Item {
                                    keel: app.keel.connected, fix: app.fix ? app.fix.status : "", card: app.cardOpen,
                                    features: app.result ? app.result.features.length : -1, waypoint: app.waypoint,
                                    wind: app.windOn, windHours: app.windHours,
+                                   night: app.theme.night, nightTiles: map.nightTiles,
                                    barbs: app.windField ? app.windField.points.length : -1});
         }
     }
@@ -525,6 +544,21 @@ Item {
                         font.pixelSize: app.theme.baseSize - 1
                     }
                     MouseArea { anchors.fill: parent; onClicked: app.toggleFollow() }
+                }
+                Rectangle {
+                    height: 24
+                    width: nightLabel.implicitWidth + 16
+                    color: app.theme.night ? app.theme.accent : Qt.alpha(app.theme.background, 0.85)
+                    border.width: 1
+                    border.color: app.theme.night ? app.theme.accent : Qt.alpha(app.theme.foreground, 0.25)
+                    Label {
+                        id: nightLabel
+                        anchors.centerIn: parent
+                        text: "NIGHT  n"
+                        color: app.theme.night ? app.theme.background : app.theme.foreground
+                        font.pixelSize: app.theme.baseSize - 1
+                    }
+                    MouseArea { anchors.fill: parent; onClicked: app.toggleNight() }
                 }
                 Rectangle {
                     height: 24
@@ -704,6 +738,7 @@ Item {
                             ["W", "clear the waypoint"],
                             ["b", "wind barbs, from omawind"],
                             ["[  ]", "the wind an hour earlier, later"],
+                            ["n", "Night Watch: red on black"],
                             ["Esc", "close the card"],
                             ["?", "these keys"],
                             ["q", "close"]

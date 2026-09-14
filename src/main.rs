@@ -16,7 +16,7 @@ const USAGE: &str = "usage:
   omahelm import ZIP|DIR [--charts DIR]   install ENC cells you already have
   omahelm index [--charts DIR]            re-read the charts and list any skipped
   omahelm query --at LAT,LON [--zoom Z] [--charts DIR]
-  omahelm render --center LAT,LON --zoom Z [--size WxH] [--scale N] [--charts DIR] --out FILE.png
+  omahelm render --center LAT,LON --zoom Z [--size WxH] [--scale N] [--night] [--charts DIR] --out FILE.png
   omahelm dump CELL.000 [CLASS]";
 
 fn main() -> ExitCode {
@@ -114,7 +114,7 @@ fn query(args: &[String]) -> Result<(), String> {
         .and_then(|z| z.parse().ok())
         .unwrap_or(15.0);
     let lib = open_library(&charts_root(args));
-    let style = current_style();
+    let style = current_style(false);
     for f in omahelm::server::features_at(&lib, &style.settings, lat, lon, zoom) {
         println!("{f}");
     }
@@ -132,11 +132,13 @@ fn index(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn current_style() -> Style {
+fn current_style(night: bool) -> Style {
     let settings = std::fs::read_to_string(style::config_path())
         .map(|t| Settings::parse(&t).0)
         .unwrap_or_default();
-    let palette = if settings.palette == "paper" {
+    let palette = if night {
+        Palette::night()
+    } else if settings.palette == "paper" {
         Palette::paper()
     } else {
         Palette::from_theme(&style::read_theme(&style::theme_path()))
@@ -163,7 +165,7 @@ fn render_view(args: &[String]) -> Result<(), String> {
         .unwrap_or(2);
     let out = flag(args, "--out").ok_or("--out is required")?;
     let lib = open_library(&charts_root(args));
-    let style = current_style();
+    let style = current_style(args.iter().any(|a| a == "--night"));
     let font = Font::load();
     let world = f64::from(zoom).exp2() * TILE;
     let [mx, my] = mercator(lon, lat);
