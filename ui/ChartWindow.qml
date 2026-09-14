@@ -489,7 +489,8 @@ Item {
     property string pointKey: ""
     function pointKeyNow() {
         var f = wind.forecast;
-        return (f ? f.run + "|" + f.status : "") + "|" + (windAt > 0 ? windAt : Math.floor(Date.now() / 60000));
+        return (f ? f.run + "|" + f.status + "|" + JSON.stringify(f.region) : "")
+            + "|" + (windAt > 0 ? windAt : Math.floor(Date.now() / 60000));
     }
     // `fresh` forgets the last answer, for a new place or hour; a refresh
     // leaves it up until the next.
@@ -523,11 +524,12 @@ Item {
             return cardWind.note ? cardWind.note.charAt(0).toUpperCase() + cardWind.note.slice(1) : "No forecast here";
         return windWords(cardWind);
     }
-    // The hour it's for, and the run it came from.
+    // The hour it's for, and the run it came from. The answer shown is
+    // always for the hour last asked, so that's the one named.
     readonly property string cardForecastWhen: {
         if (!cardWind || typeof cardWind.speedKn !== "number") return "";
-        var t = Date.parse(cardWind.time), run = Date.parse(cardWind.run);
-        var when = windAt > 0 && !isNaN(t) ? Qt.formatDateTime(new Date(t), "ddd HH:mm") : "Now";
+        var run = Date.parse(cardWind.run);
+        var when = windAt > 0 ? Qt.formatDateTime(new Date(windAt), "ddd HH:mm") : "Now";
         return when + (isNaN(run) ? "" : ", from the " + Qt.formatDateTime(new Date(run), "HH:mm") + " run");
     }
     // The station nearest the card's place, within 10 nm, for now only:
