@@ -49,12 +49,14 @@ QtObject {
         }
     }
 
-    // The stations that can be drawn, so a broken engine can't hang or
-    // break the chart: finite numbers in range, and a direction left out
-    // only in a calm.
+    // The stations that can be drawn and named, so a broken engine can't
+    // hang or break the chart: finite numbers in range, a direction left out
+    // only in a calm, and text where the readout expects text.
     function drawable(m) {
         function num(v, lo, hi) { return typeof v === "number" && isFinite(v) && v >= lo && v <= hi; }
         var kept = m.stations.filter(s => s !== null && typeof s === "object"
+            && typeof s.id === "string" && typeof s.time === "string"
+            && (s.name === undefined || typeof s.name === "string")
             && num(s.lat, -90, 90) && num(s.lon, -180, 180) && num(s.speedKn, 0, 250)
             && (s.dirDeg === undefined ? s.speedKn === 0 : num(s.dirDeg, 0, 360))
             && (s.gustKn === undefined || num(s.gustKn, 0, 300)));
