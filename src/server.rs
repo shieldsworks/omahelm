@@ -810,10 +810,15 @@ fn line_distance(p: [f64; 2], lines: &[Vec<[f64; 2]>]) -> Option<f64> {
         })
 }
 
-/// Metadata and collections: nothing a sailor clicks on.
+/// Metadata and collections: nothing a sailor clicks on. Magnetic
+/// variation too: it's charted over whole areas, so it came up on every
+/// click, and the chart is all true bearings.
 fn skip(class: u16) -> bool {
     let a = s57::acronym(class);
-    a.starts_with("M_") || a.starts_with("C_") || matches!(class, DAYMAR | TOPMAR) || a == "?"
+    a.starts_with("M_")
+        || a.starts_with("C_")
+        || matches!(class, DAYMAR | TOPMAR | MAGVAR)
+        || a == "?"
 }
 
 fn describe(chart: &Chart, item: &Item, at: [f64; 2], set: &Settings) -> Value {
@@ -920,27 +925,6 @@ fn describe(chart: &Chart, item: &Item, at: [f64; 2], set: &Settings) -> Value {
             }
             if let Some(h) = item.num(HORCLR) {
                 lines.push(format!("Horizontal clearance {}", marks::depth_words(h, u)));
-            }
-        }
-        MAGVAR => {
-            let east_west = |v: f64| if v < 0.0 { "W" } else { "E" };
-            if let Some(v) = item.num(VALMAG) {
-                let mut t = format!(
-                    "Variation {}° {}",
-                    marks::trim_number(v.abs()),
-                    east_west(v)
-                );
-                if let Some(year) = item.attr(RYRMGV) {
-                    t.push_str(&format!(" in {year}"));
-                }
-                title = Some(t);
-            }
-            if let Some(a) = item.num(VALACM) {
-                lines.push(format!(
-                    "Changing {}′ {} a year",
-                    marks::trim_number(a.abs()),
-                    east_west(a)
-                ));
             }
         }
         SBDARE => {

@@ -61,7 +61,7 @@ skipped; `omahelm index` lists them.
 | `+` `-`, scroll | Zoom |
 | `f` | Follow the boat, or stop (it opens following; panning stops it) |
 | `c` | Center on the boat once |
-| Click | What's charted here |
+| Click | What's charted here, and the wind there with the barbs on |
 | `i` | What's charted at the center |
 | `w`, right-click | Set a waypoint: bearing, range and ETA from the boat |
 | `W` | Clear the waypoint |
@@ -82,6 +82,11 @@ Each is a barb in the theme's accent color on a dot, with its knots on the
 far side: `7g11` is 7 knots gusting 11. Point at one for its name and how
 old the report is. They're for now only, so `]` to a forecast hour hides
 them.
+
+Click the chart with the barbs on and the card leads with the wind there:
+the forecast for the hour on show, worked out for that very spot rather than
+the nearest barb, and, for now, the nearest station within 10 nm with how
+far off it is and how old its report is.
 
 A time bar runs along the bottom while the barbs are on, from now to the
 forecast's last hour. Above its hour ticks is the forecast wind at the boat:
