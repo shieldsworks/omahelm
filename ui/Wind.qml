@@ -41,12 +41,24 @@ QtObject {
         if (m.type === "state") {
             if (m.forecast !== null && typeof m.forecast === "object") wind.state = m;
         } else if (m.type === "stations") {
-            if (Array.isArray(m.stations)) wind.stations = m;
+            if (Array.isArray(m.stations)) wind.stations = wind.drawable(m);
         } else if (m.type === "field") {
             if (Array.isArray(m.points)) wind.field(m);
         } else if (m.type === "error") {
             wind.rejected(m);
         }
+    }
+
+    // The stations that can be drawn, so a broken engine can't hang or
+    // break the chart: finite numbers in range, and a direction left out
+    // only in a calm.
+    function drawable(m) {
+        function num(v, lo, hi) { return typeof v === "number" && isFinite(v) && v >= lo && v <= hi; }
+        var kept = m.stations.filter(s => s !== null && typeof s === "object"
+            && num(s.lat, -90, 90) && num(s.lon, -180, 180) && num(s.speedKn, 0, 250)
+            && (s.dirDeg === undefined ? s.speedKn === 0 : num(s.dirDeg, 0, 360))
+            && (s.gustKn === undefined || num(s.gustKn, 0, 300)));
+        return Object.assign({}, m, {stations: kept});
     }
 
     function send(message) {

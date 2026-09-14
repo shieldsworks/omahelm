@@ -430,7 +430,7 @@ Item {
         var best = null, bestD = 14 * 14;
         for (var i = 0; i < stations.length; i++) {
             var s = stations[i];
-            if (typeof s.lat !== "number" || typeof s.lon !== "number") continue;
+            if (!s || typeof s.lat !== "number" || typeof s.lon !== "number") continue;
             var at = px(s.lat, s.lon);
             var d = (at.x - hover.x) * (at.x - hover.x) + (at.y - hover.y) * (at.y - hover.y);
             if (d < bestD) { best = s; bestD = d; }
@@ -439,6 +439,9 @@ Item {
     }
 
     function barb(ctx, x, y, knots, fromDeg) {
+        // Whatever the socket said, a barb is a bounded amount of work.
+        if (!isFinite(knots) || !isFinite(fromDeg)) return;
+        knots = Math.max(0, Math.min(knots, 250));
         var r = fromDeg * Math.PI / 180;
         var dx = Math.sin(r), dy = -Math.cos(r);      // toward the wind
         var rx = -dy, ry = dx;                        // its right
@@ -516,7 +519,7 @@ Item {
                 ctx.fillStyle = passes[k][0];
                 for (var i = 0; i < points.length; i++) {
                     var p = points[i];
-                    if (typeof p.lat !== "number" || typeof p.lon !== "number"
+                    if (!p || typeof p.lat !== "number" || typeof p.lon !== "number"
                             || typeof p.speedKn !== "number" || typeof p.dirDeg !== "number") continue;
                     var at = map.px(p.lat, p.lon);
                     if (at.x < -30 || at.y < -30 || at.x > width + 30 || at.y > height + 30) continue;
@@ -534,7 +537,7 @@ Item {
                 ctx.lineWidth = marks[m][1];
                 for (var j = 0; j < map.stations.length; j++) {
                     var s = map.stations[j];
-                    if (typeof s.lat !== "number" || typeof s.lon !== "number" || typeof s.speedKn !== "number") continue;
+                    if (!s || typeof s.lat !== "number" || typeof s.lon !== "number" || typeof s.speedKn !== "number") continue;
                     var sp = map.px(s.lat, s.lon);
                     if (sp.x < -30 || sp.y < -30 || sp.x > width + 30 || sp.y > height + 30) continue;
                     // Only a calm comes without a direction.
