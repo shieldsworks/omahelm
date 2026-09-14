@@ -1,0 +1,26 @@
+[package]
+name = "omahelm"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.89"
+description = "The Omahoy chartplotter: NOAA electronic charts, read and drawn from scratch"
+license = "MIT"
+repository = "https://github.com/shieldsworks/omahelm"
+homepage = "https://omahoy.org"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+libc = "0.2"
+# Chart tiles are drawn with tiny-skia: antialiased paths, strokes, dashes.
+# Its own PNG feature would pull a second copy of `png`.
+tiny-skia = { version = "0.12", default-features = false, features = ["std", "simd"] }
+png = "0.18"
+# Glyph outlines for soundings and names, filled as paths by tiny-skia.
+ttf-parser = { version = "0.25", default-features = false, features = ["std", "opentype-layout"] }
+
+[profile.dev.package."*"]
+opt-level = 2
+
+[profile.release]
+debug = "line-tables-only"
