@@ -142,19 +142,26 @@ Item {
         if (isNaN(last)) return 0;
         return Math.max(0, Math.floor((last - Math.floor(Date.now() / 3600e3) * 3600e3) / 3600e3));
     }
+    // Barbs for another hour or run mustn't stay up under a new label: an
+    // answer still on its way is ignored, and the barbs go until the next.
+    function forgetWind() {
+        windId += 1;
+        windField = null;
+    }
     function toggleWind() {
         windOn = !windOn;
         windError = "";
-        if (!windOn) {
-            windField = null;
-            windHours = 0;
-        } else {
-            windSettle.restart();
-        }
+        forgetWind();
+        if (!windOn) windHours = 0;
+        else windSettle.restart();
     }
     function stepWind(d) {
         if (!windOn) windOn = true;
-        windHours = Math.max(0, Math.min(windReach(), windHours + d));
+        var next = Math.max(0, Math.min(windReach(), windHours + d));
+        if (next !== windHours) {
+            windHours = next;
+            forgetWind();
+        }
         windSettle.restart();
     }
     // The view and a margin around it, thinned to a barb every 70 pixels
@@ -162,11 +169,19 @@ Item {
     function requestWind() {
         if (!windOn || !wind.connected || !wind.forecast || wind.forecast.status === "none"
                 || map.width <= 0 || map.height <= 0) return;
+        // Time moves on, and a new run may end sooner: never past the end.
+        var reach = windReach();
+        if (windHours > reach) {
+            windHours = reach;
+            forgetWind();
+        }
         var w = map.width / map.world, h = map.height / map.world;
+        function clampLat(v) { return Math.max(-85, Math.min(85, v)); }
+        var north = clampLat(Geo.lat(map.cy - h * 0.6)), south = clampLat(Geo.lat(map.cy + h * 0.6));
+        var west = Math.max(-180, Geo.lon(map.cx - w * 0.6)), east = Math.min(180, Geo.lon(map.cx + w * 0.6));
+        if (!(south < north && west < east)) return;
         var request = {
-            type: "field", id: ++windId,
-            north: Math.min(85, Geo.lat(map.cy - h * 0.6)), south: Math.max(-85, Geo.lat(map.cy + h * 0.6)),
-            west: Math.max(-180, Geo.lon(map.cx - w * 0.6)), east: Math.min(180, Geo.lon(map.cx + w * 0.6)),
+            type: "field", id: ++windId, south: south, west: west, north: north, east: east,
             max: Math.max(1, Math.min(2000, Math.floor(map.width * map.height / 4900)))
         };
         if (windHours > 0) request.time = windTime(windHours);
@@ -188,9 +203,10 @@ Item {
             if (said !== app.windError) app.toast(said);
             app.windError = said;
         }
-        // A new minute or a new run: ask again.
+        // A new minute or a new run: ask again. No forecast: no barbs.
         function onStateChanged() {
-            if (!app.wind.state) app.windField = null;
+            var f = app.wind.forecast;
+            if (!f || f.status === "none") app.forgetWind();
             else if (app.windOn) windSettle.restart();
         }
     }
@@ -210,7 +226,9 @@ Item {
         var when = windHours > 0
             ? "+" + windHours + " h  " + Qt.formatDateTime(new Date(windTime(windHours)), "ddd HH:mm")
             : "now";
-        var out = "WIND " + when + "   HRRR " + Qt.formatDateTime(new Date(f.run), "HH:mm") + " run";
+        // The run the barbs on show came from, once they're in.
+        var run = windField && typeof windField.run === "string" ? windField.run : f.run;
+        var out = "WIND " + when + "   HRRR " + Qt.formatDateTime(new Date(run), "HH:mm") + " run";
         if (f.status === "old") out += ", old";
         if (f.status === "expired") out += ", run out";
         return out;
