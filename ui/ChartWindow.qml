@@ -237,6 +237,7 @@ Item {
     }
     function stepWind(d) {
         windPlaying = false;
+        windPlayPending = false;
         if (!windOn) windOn = true;
         var next = clampWind((windAt > 0 ? windAt : hourNow()) + d * 3600e3);
         if (next !== windAt) {
@@ -247,7 +248,9 @@ Item {
     }
     // The hour `i` on from the one under way, 0 being now: where the
     // scrubber and play land. An hour already fetched shows at once.
+    // An hour picked by hand: it cancels a play still waiting to start.
     function scrubTo(i) {
+        windPlayPending = false;
         i = Math.max(0, Math.min(windSpan, Math.round(i)));
         scrubAt(i === 0 ? 0 : hourNow() + i * 3600e3);
     }
