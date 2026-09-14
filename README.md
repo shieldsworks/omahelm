@@ -67,6 +67,7 @@ skipped; `omahelm index` lists them.
 | `W` | Clear the waypoint |
 | `b` | Wind barbs, from [omawind](https://github.com/shieldsworks/omawind): the forecast, and the wind NOAA's stations measured |
 | `[` `]` | The wind an hour earlier, later |
+| Space | Play the wind hour by hour |
 | `n` | Night Watch: red on black, to keep your night vision |
 | `?` | Keys |
 | `Esc` | Close a card |
@@ -81,6 +82,14 @@ Each is a barb in the theme's accent color on a dot, with its knots on the
 far side: `7g11` is 7 knots gusting 11. Point at one for its name and how
 old the report is. They're for now only, so `]` to a forecast hour hides
 them.
+
+A time bar runs along the bottom while the barbs are on, from now to the
+forecast's last hour. Above its hour ticks is the forecast wind at the boat:
+speed shaded, gusts dashed, so you can see when the breeze builds. Drag or
+click to an hour, or scroll over it, and the barbs follow; the readout says
+the hour and the wind at the boat then, like `Tue 14:00  250°T 12G16 kn`.
+Space, or the play button, steps through the hours. Hours already fetched
+are kept, so going back over them is instant.
 
 ## Settings
 
