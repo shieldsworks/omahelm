@@ -13,9 +13,8 @@ workspace of its own, full screen.
   map library in between.
 - Show your boat, track, route, and waypoints from
   [omakeel](https://github.com/shieldsworks/omakeel).
-- Show AIS targets from [omalookout](https://github.com/shieldsworks/omalookout), live
-  radar from [Omastorm](https://github.com/wesleygrimes/omastorm), and GRIB wind
-  offshore.
+- Show AIS targets from [omalookout](https://github.com/shieldsworks/omalookout),
+  and GRIB wind offshore.
 - Work from the keyboard first, and also by touch.
 
 ## Not for navigation
