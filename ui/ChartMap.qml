@@ -82,7 +82,13 @@ Item {
     // ---------------------------------------------------------------- tiles
 
     readonly property int pixelRatio: Math.max(1, Math.min(4, Math.round(Screen.devicePixelRatio || 1)))
-    readonly property var tileState: helm && helm.state ? helm.state.tiles : null
+    readonly property var dayTiles: helm && helm.state ? helm.state.tiles : null
+    // Night Watch tiles when the window is in it and the engine draws them;
+    // an engine older than the window has only the theme's.
+    readonly property bool nightTiles: !!theme && theme.night && !!dayTiles && !!dayTiles.night
+                                       && typeof dayTiles.night.root === "string"
+                                       && typeof dayTiles.night.generation === "string"
+    readonly property var tileState: nightTiles ? dayTiles.night : dayTiles
     readonly property string root: tileState ? tileState.root : ""
     readonly property string generation: tileState ? tileState.generation : ""
     readonly property bool chartsReady: !!(helm && helm.connected && helm.state && helm.state.charts
@@ -132,14 +138,17 @@ Item {
         if (!chartsReady || !root || width <= 0 || height <= 0) return;
         var r = tileRect(level);
         r.scale = pixelRatio;
+        r.night = nightTiles;
         // The protocol's limit; only a wall of screens needs more.
         if ((r.x1 - r.x0 + 1) * (r.y1 - r.y0 + 1) > 256) return;
-        var same = request && ["z", "x0", "y0", "x1", "y1", "scale"].every(k => request[k] === r[k]);
+        var same = request && ["z", "x0", "y0", "x1", "y1", "scale", "night"].every(k => request[k] === r[k]);
         if (!same) {
             request = r;
             // The engine answers tiles it already has at once, so the
             // whole rectangle is asked for every time.
-            helm.send({type: "tiles", z: r.z, x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, scale: r.scale});
+            var ask = {type: "tiles", z: r.z, x0: r.x0, y0: r.y0, x1: r.x1, y1: r.y1, scale: r.scale};
+            if (r.night) ask.look = "night";
+            helm.send(ask);
         }
         rebuild();
     }
@@ -466,6 +475,11 @@ Item {
         anchors.fill: parent
         z: 5
         visible: !!map.wind
+        // Painted colours don't follow the theme on their own.
+        property color ink: map.theme.foreground
+        property color halo: map.theme.background
+        onInkChanged: requestPaint()
+        onHaloChanged: requestPaint()
         onPaint: {
             var ctx = getContext("2d");
             ctx.reset();
@@ -474,7 +488,7 @@ Item {
             ctx.lineJoin = "round";
             // A halo in the background colour first, so barbs read over any
             // chart colour, then the barbs themselves.
-            var passes = [[String(map.theme.background), 4], [String(map.theme.foreground), 1.5]];
+            var passes = [[String(halo), 4], [String(ink), 1.5]];
             for (var k = 0; k < passes.length; k++) {
                 ctx.strokeStyle = passes[k][0];
                 ctx.lineWidth = passes[k][1];
