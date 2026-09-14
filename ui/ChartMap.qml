@@ -419,7 +419,29 @@ Item {
     property var wind: null
     onWindChanged: barbs.requestPaint()
 
+    // omawind's stations: the wind NOAA's buoys and piers measured, drawn
+    // over the forecast in the accent colour, each barb on a dot with its
+    // knots on the far side.
+    property var stations: []
+    onStationsChanged: barbs.requestPaint()
+    // The station under the pointer, or null.
+    readonly property var hoverStation: {
+        if (!hovering) return null;
+        var best = null, bestD = 14 * 14;
+        for (var i = 0; i < stations.length; i++) {
+            var s = stations[i];
+            if (!s || typeof s.lat !== "number" || typeof s.lon !== "number") continue;
+            var at = px(s.lat, s.lon);
+            var d = (at.x - hover.x) * (at.x - hover.x) + (at.y - hover.y) * (at.y - hover.y);
+            if (d < bestD) { best = s; bestD = d; }
+        }
+        return best;
+    }
+
     function barb(ctx, x, y, knots, fromDeg) {
+        // Whatever the socket said, a barb is a bounded amount of work.
+        if (!isFinite(knots) || !isFinite(fromDeg)) return;
+        knots = Math.max(0, Math.min(knots, 250));
         var r = fromDeg * Math.PI / 180;
         var dx = Math.sin(r), dy = -Math.cos(r);      // toward the wind
         var rx = -dy, ry = dx;                        // its right
@@ -474,12 +496,14 @@ Item {
         id: barbs
         anchors.fill: parent
         z: 5
-        visible: !!map.wind
+        visible: !!map.wind || map.stations.length > 0
         // Painted colours don't follow the theme on their own.
         property color ink: map.theme.foreground
         property color halo: map.theme.background
+        property color measured: map.theme.accent
         onInkChanged: requestPaint()
         onHaloChanged: requestPaint()
+        onMeasuredChanged: requestPaint()
         onPaint: {
             var ctx = getContext("2d");
             ctx.reset();
@@ -495,19 +519,47 @@ Item {
                 ctx.fillStyle = passes[k][0];
                 for (var i = 0; i < points.length; i++) {
                     var p = points[i];
-                    if (typeof p.lat !== "number" || typeof p.lon !== "number"
+                    if (!p || typeof p.lat !== "number" || typeof p.lon !== "number"
                             || typeof p.speedKn !== "number" || typeof p.dirDeg !== "number") continue;
                     var at = map.px(p.lat, p.lon);
                     if (at.x < -30 || at.y < -30 || at.x > width + 30 || at.y > height + 30) continue;
                     map.barb(ctx, at.x, at.y, p.speedKn, p.dirDeg);
                 }
             }
+            // Then the stations, on top: what was measured outranks the model.
+            ctx.font = "bold " + (map.theme.baseSize - 2) + "px '" + map.theme.font + "'";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            var marks = [[String(halo), 4, 4.5], [String(measured), 1.5, 3]];
+            for (var m = 0; m < marks.length; m++) {
+                ctx.strokeStyle = marks[m][0];
+                ctx.fillStyle = marks[m][0];
+                ctx.lineWidth = marks[m][1];
+                for (var j = 0; j < map.stations.length; j++) {
+                    var s = map.stations[j];
+                    if (!s || typeof s.lat !== "number" || typeof s.lon !== "number" || typeof s.speedKn !== "number") continue;
+                    var sp = map.px(s.lat, s.lon);
+                    if (sp.x < -30 || sp.y < -30 || sp.x > width + 30 || sp.y > height + 30) continue;
+                    // Only a calm comes without a direction.
+                    var from = typeof s.dirDeg === "number" ? s.dirDeg : 0;
+                    map.barb(ctx, sp.x, sp.y, typeof s.dirDeg === "number" ? s.speedKn : 0, from);
+                    ctx.beginPath();
+                    ctx.arc(sp.x, sp.y, marks[m][2], 0, 2 * Math.PI);
+                    ctx.fill();
+                    var r = from * Math.PI / 180;
+                    var lx = sp.x - Math.sin(r) * 15, ly = sp.y + Math.cos(r) * 15;
+                    var kn = Math.round(s.speedKn);
+                    var label = kn + (typeof s.gustKn === "number" && Math.round(s.gustKn) > kn ? "g" + Math.round(s.gustKn) : "");
+                    if (m === 0) ctx.strokeText(label, lx, ly);
+                    else ctx.fillText(label, lx, ly);
+                }
+            }
         }
         Connections {
             target: map
-            function onCxChanged() { if (map.wind) barbs.requestPaint(); }
-            function onCyChanged() { if (map.wind) barbs.requestPaint(); }
-            function onZoomChanged() { if (map.wind) barbs.requestPaint(); }
+            function onCxChanged() { if (map.wind || map.stations.length) barbs.requestPaint(); }
+            function onCyChanged() { if (map.wind || map.stations.length) barbs.requestPaint(); }
+            function onZoomChanged() { if (map.wind || map.stations.length) barbs.requestPaint(); }
         }
         onWidthChanged: requestPaint()
         onHeightChanged: requestPaint()
