@@ -67,6 +67,7 @@ skipped; `omahelm index` lists them.
 | `W` | Clear the waypoint |
 | `b` | Wind barbs, from [omawind](https://github.com/shieldsworks/omawind): the forecast, and the wind NOAA's stations measured |
 | `[` `]` | The wind an hour earlier, later |
+| `t` | The time bar: the forecast at the boat, hour by hour |
 | Space | Play the wind hour by hour |
 | `n` | Night Watch: red on black, to keep your night vision |
 | `?` | Keys |
@@ -88,8 +89,9 @@ the forecast for the hour on show, worked out for that very spot rather than
 the nearest barb, and, for now, the nearest station within 10 nm with how
 far off it is and how old its report is.
 
-A time bar runs along the bottom while the barbs are on, from now to the
-forecast's last hour. Above its hour ticks is the forecast wind at the boat:
+`t`, or the TIME chip beside the WIND label, opens a time bar along the
+bottom, from now to the forecast's last hour; it stays closed until you
+open it, and remembers. `[` `]` and space step the hours without it. Above its hour ticks is the forecast wind at the boat:
 speed shaded, gusts dashed, so you can see when the breeze builds. Drag or
 click to an hour, or scroll over it, and the barbs follow; the readout says
 the hour and the wind at the boat then, like `Tue 14:00  250°T 12G16 kn`.
