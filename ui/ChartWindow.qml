@@ -148,6 +148,8 @@ Item {
     property var windField: null    // the last `field` asked for
     property string windError: ""
     property bool windPlaying: false
+    // Space pressed before the forecast was in: play once it is.
+    property bool windPlayPending: false
     // Fields already fetched, by hour, for the view and run in windView, so
     // scrubbing back over an hour is instant; a new view or run starts
     // afresh. windAsked maps a request's id to the hour it asked for.
@@ -223,6 +225,7 @@ Item {
         if (!windOn) {
             windAt = 0;
             windPlaying = false;
+            windPlayPending = false;
         } else windSettle.restart();
     }
     // An hour the clock has reached is now; one past the forecast's end is
@@ -265,7 +268,17 @@ Item {
     }
     // Space: the hours one after another, from now if at the end.
     function togglePlay() {
-        if (!windOn) windOn = true;
+        if (windPlayPending) {
+            windPlayPending = false;
+            return;
+        }
+        // The layer just turned on, or omawind hasn't answered yet: play
+        // once the forecast is in, or say then that there's nothing to.
+        if (!windOn || !wind.state) {
+            windOn = true;
+            windPlayPending = true;
+            return;
+        }
         if (windPlaying) {
             windPlaying = false;
             return;
@@ -393,6 +406,10 @@ Item {
             var f = app.wind.forecast;
             if (!f || f.status === "none") app.forgetWind();
             else if (app.windOn) windSettle.restart();
+            if (app.windPlayPending && app.windOn && app.wind.state) {
+                app.windPlayPending = false;
+                app.togglePlay();
+            }
         }
     }
     Connections {
@@ -786,7 +803,8 @@ Item {
             // forecast hours ahead.
             Rectangle {
                 id: scrubber
-                visible: app.windOn && app.windSpan > 0 && app.notice === ""
+                // Too narrow a window for a bar of hours: none.
+                visible: app.windOn && app.windSpan > 0 && app.notice === "" && map.width >= 240
                 z: 30
                 anchors { left: parent.left; right: parent.right; bottom: statusBar.top; margins: 10 }
                 height: app.theme.baseSize * 2 + 36
@@ -815,6 +833,8 @@ Item {
 
                 Column {
                     id: readout
+                    // Only with room for it and a bar of hours beside it.
+                    visible: scrubber.width >= width + 220
                     anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
                     width: app.theme.baseSize * 16
                     spacing: 2
@@ -835,7 +855,8 @@ Item {
 
                 Item {
                     id: hoursBar
-                    anchors { left: playButton.right; leftMargin: 14; right: readout.left; rightMargin: 18
+                    anchors { left: playButton.right; leftMargin: 14
+                              right: readout.visible ? readout.left : parent.right; rightMargin: readout.visible ? 18 : 12
                               top: parent.top; bottom: parent.bottom; topMargin: 6; bottomMargin: 4 }
                     readonly property real step: app.windSpan > 0 ? width / app.windSpan : width
 
