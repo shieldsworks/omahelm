@@ -160,10 +160,12 @@ Item {
     Timer { interval: 30000; repeat: true; running: app.windOn; onTriggered: app.minute = Date.now() }
 
     function hourNow() { return Math.floor(Date.now() / 3600e3) * 3600e3; }
+    // The forecast's last hour. No run goes past 48 hours, so a later end
+    // is a broken one and mustn't make the scrubber endless.
     function windLast() {
         var f = wind.forecast;
         var t = f && typeof f.last === "string" ? Date.parse(f.last) : NaN;
-        return isNaN(t) ? 0 : t;
+        return isNaN(t) ? 0 : Math.min(t, hourNow() + 48 * 3600e3);
     }
     // Hours from the hour under way to the one chosen.
     readonly property int windHours: {
@@ -192,12 +194,17 @@ Item {
     // boat then, as the bar puts it.
     readonly property string scrubText: {
         void app.minute;
-        var at = windAt > 0 ? windAt : hourNow();
-        var when = windAt > 0 ? Qt.formatDateTime(new Date(at), "ddd HH:mm") : "Now";
-        var h = windOutlook.find(o => Date.parse(o.time) === at);
+        // Now is the wind at the boat this minute, as the barbs are; an
+        // hour ahead is that hour's forecast.
+        var here = wind.state ? wind.state.here : null;
+        var h = windAt > 0 ? windOutlook.find(o => Date.parse(o.time) === windAt)
+            : here && typeof here.speedKn === "number" && isFinite(here.speedKn)
+              && typeof here.dirDeg === "number" && isFinite(here.dirDeg) ? here : null;
+        var when = windAt > 0 ? Qt.formatDateTime(new Date(windAt), "ddd HH:mm") : "Now";
         if (!h) return when;
         var kn = Math.round(h.speedKn);
-        var gust = typeof h.gustKn === "number" && Math.round(h.gustKn) > kn ? "G" + Math.round(h.gustKn) : "";
+        var gust = typeof h.gustKn === "number" && isFinite(h.gustKn) && Math.round(h.gustKn) > kn
+            ? "G" + Math.round(h.gustKn) : "";
         return when + "   " + Geo.degrees(h.dirDeg) + "T " + kn + gust + " kn";
     }
     readonly property string scrubWhere: wind.state && wind.state.here && wind.state.here.at === "home"
@@ -238,13 +245,23 @@ Item {
     // The hour `i` on from the one under way, 0 being now: where the
     // scrubber and play land. An hour already fetched shows at once.
     function scrubTo(i) {
-        if (!windOn) windOn = true;
         i = Math.max(0, Math.min(windSpan, Math.round(i)));
-        var next = i === 0 ? 0 : clampWind(hourNow() + i * 3600e3);
+        scrubAt(i === 0 ? 0 : hourNow() + i * 3600e3);
+    }
+    // The same, by the hour's time, 0 being now.
+    function scrubAt(at) {
+        if (!windOn) windOn = true;
+        var next = clampWind(at);
         if (next === windAt) return;
         windAt = next;
         forgetWind();
         requestWind();
+    }
+    // The hour after the one on show, by its time, so play can't skip one
+    // as the clock turns over; 0 past the forecast's end.
+    function nextHour() {
+        var at = (windAt > 0 ? windAt : hourNow()) + 3600e3, last = windLast();
+        return last && at <= last ? at : 0;
     }
     // Space: the hours one after another, from now if at the end.
     function togglePlay() {
@@ -257,21 +274,22 @@ Item {
             toast("No forecast hours ahead to play");
             return;
         }
-        if (windHours >= windSpan) scrubTo(0);
+        if (!nextHour()) scrubAt(0);
         windPlaying = true;
-        prefetchWind(windHours + 1);
+        prefetchAt(nextHour());
     }
     Timer {
         interval: 900
         repeat: true
         running: app.windPlaying && app.windOn
         onTriggered: {
-            if (app.windHours >= app.windSpan) {
+            var at = app.nextHour();
+            if (!at) {
                 app.windPlaying = false;
                 return;
             }
-            app.scrubTo(app.windHours + 1);
-            app.prefetchWind(app.windHours + 1);
+            app.scrubAt(at);
+            app.prefetchAt(app.nextHour());
         }
     }
     // The view and a margin around it, thinned to a barb every 70 pixels
@@ -286,11 +304,13 @@ Item {
         return {south: south, west: west, north: north, east: east,
                 max: Math.max(1, Math.min(2000, Math.floor(map.width * map.height / 4900)))};
     }
-    // Hours are kept for one view and one run: anything else starts afresh.
+    // Hours are kept for one view, one run and one forecast region:
+    // anything else starts afresh.
     function windCacheFor(area) {
         var f = wind.forecast;
         var view = [area.south, area.west, area.north, area.east].map(v => v.toFixed(5)).join(",")
-            + "," + area.max + "|" + (f && typeof f.run === "string" ? f.run : "");
+            + "," + area.max + "|" + (f && typeof f.run === "string" ? f.run : "")
+            + "|" + (f && f.region ? JSON.stringify(f.region) : "");
         if (view !== windView || Object.keys(windCache).length > 120) {
             windView = view;
             windCache = ({});
@@ -334,13 +354,14 @@ Item {
         }
         askWind(area, windAt, ++windId);
     }
-    // Hour `i` fetched ahead while playing, so it's there when play is.
-    function prefetchWind(i) {
-        if (!windOn || !wind.connected || i <= 0 || i > windSpan) return;
+    // The hour at `at` fetched ahead while playing, so it's there when
+    // play is.
+    function prefetchAt(at) {
+        if (!windOn || !wind.connected || !at || at <= hourNow() || at > windLast()) return;
         var area = windArea();
         if (!area) return;
         windCacheFor(area);
-        var key = String(hourNow() + i * 3600e3);
+        var key = String(at);
         if (windCache[key] || Object.keys(windAsked).some(id => windAsked[id] === key)) return;
         askWind(area, Number(key), "ahead" + (++windAhead));
     }
