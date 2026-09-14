@@ -250,7 +250,8 @@ Item {
         function onHeightChanged() { if (app.windOn) windSettle.restart(); }
     }
     // The wind the stations measured: with the barbs, and only for now.
-    readonly property var windStations: windOn && windAt === 0 && wind.stations ? wind.stations.stations : []
+    readonly property var windStations: windOn && windAt === 0 && wind.connected && !wind.incompatible
+        && wind.stations ? wind.stations.stations : []
     readonly property string windText: {
         void app.minute;
         if (wind.incompatible) return "WIND  omawind speaks a newer protocol: update omahelm";
@@ -516,7 +517,10 @@ Item {
         implicitHeight: Number(Quickshell.env("OMAHELM_HEIGHT")) || 800
         color: app.theme.background
 
+        // Plain text: labels carry what the engines send, like a station's
+        // name, and that mustn't be read as markup.
         component Label: Text {
+            textFormat: Text.PlainText
             color: app.theme.foreground
             font.family: app.theme.font
             font.pixelSize: app.theme.baseSize
@@ -813,15 +817,16 @@ Item {
                     // than cut mid-glyph.
                     Label {
                         id: waypointLabel
-                        visible: text !== ""
+                        visible: text !== "" && !map.hoverStation
                         text: app.waypointText
                         color: app.theme.accent
                         width: Math.min(implicitWidth, Math.max(0, leftStatus.width - gpsLabel.width - leftStatus.spacing))
                         elide: Text.ElideRight
                     }
-                    // The cursor gives way to the waypoint.
+                    // The cursor gives way to the waypoint, but a station
+                    // pointed at takes the waypoint's place.
                     Label {
-                        visible: text !== "" && !app.waypoint
+                        visible: text !== "" && (!app.waypoint || !!map.hoverStation)
                         text: app.cursorText
                         color: Qt.alpha(app.theme.foreground, 0.7)
                         width: Math.min(implicitWidth, Math.max(0, leftStatus.width - gpsLabel.width - leftStatus.spacing))

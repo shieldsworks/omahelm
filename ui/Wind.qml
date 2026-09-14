@@ -31,6 +31,8 @@ QtObject {
             return;
         }
         if (m === null || typeof m !== "object" || typeof m.v !== "number") return;
+        // Lines already buffered after another version's are dropped too.
+        if (wind.incompatible) return;
         if (m.v !== wind.version) {
             wind.incompatible = true;
             wind.state = null;
