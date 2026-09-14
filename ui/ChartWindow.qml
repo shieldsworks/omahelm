@@ -138,7 +138,8 @@ Item {
 
     // ---------------------------------------------------------- the wind
 
-    // omawind's wind barbs, now or at a whole hour ahead: b, [ and ].
+    // omawind's wind barbs, now or at a whole hour ahead: b, [ and ], the
+    // scrubber along the bottom, and space to play the hours.
     property bool windOn: false
     // The hour chosen, as UTC milliseconds, or 0 for now. It's absolute,
     // so the barbs stay right as the clock turns over.
@@ -146,6 +147,14 @@ Item {
     property int windId: 0
     property var windField: null    // the last `field` asked for
     property string windError: ""
+    property bool windPlaying: false
+    // Fields already fetched, by hour, for the view and run in windView, so
+    // scrubbing back over an hour is instant; a new view or run starts
+    // afresh. windAsked maps a request's id to the hour it asked for.
+    property var windCache: ({})
+    property var windAsked: ({})
+    property string windView: ""
+    property int windAhead: 0
     // Read by the bindings below that follow the clock.
     property real minute: Date.now()
     Timer { interval: 30000; repeat: true; running: app.windOn; onTriggered: app.minute = Date.now() }
@@ -161,6 +170,38 @@ Item {
         void app.minute;
         return windAt > 0 ? Math.round((windAt - hourNow()) / 3600e3) : 0;
     }
+    // Hours from the one under way to the forecast's last: the scrubber's
+    // length. None without a forecast that covers now.
+    readonly property int windSpan: {
+        void app.minute;
+        var f = wind.forecast, last = windLast();
+        if (!f || f.status === "none" || f.status === "expired") return 0;
+        return last > hourNow() ? Math.round((last - hourNow()) / 3600e3) : 0;
+    }
+    // The forecast at the boat hour by hour, for the scrubber's graph and
+    // readout: only hours with a time and numbers that can be drawn.
+    readonly property var windOutlook: {
+        var s = wind.state;
+        if (!s || !Array.isArray(s.outlook)) return [];
+        function num(v, lo, hi) { return typeof v === "number" && isFinite(v) && v >= lo && v <= hi; }
+        return s.outlook.filter(h => h !== null && typeof h === "object" && typeof h.time === "string"
+            && !isNaN(Date.parse(h.time)) && num(h.speedKn, 0, 250) && num(h.dirDeg, 0, 360)
+            && (h.gustKn === undefined || num(h.gustKn, 0, 300)));
+    }
+    // The scrubber's readout: the hour chosen and the wind forecast at the
+    // boat then, as the bar puts it.
+    readonly property string scrubText: {
+        void app.minute;
+        var at = windAt > 0 ? windAt : hourNow();
+        var when = windAt > 0 ? Qt.formatDateTime(new Date(at), "ddd HH:mm") : "Now";
+        var h = windOutlook.find(o => Date.parse(o.time) === at);
+        if (!h) return when;
+        var kn = Math.round(h.speedKn);
+        var gust = typeof h.gustKn === "number" && Math.round(h.gustKn) > kn ? "G" + Math.round(h.gustKn) : "";
+        return when + "   " + Geo.degrees(h.dirDeg) + "T " + kn + gust + " kn";
+    }
+    readonly property string scrubWhere: wind.state && wind.state.here && wind.state.here.at === "home"
+        ? "forecast at home" : "forecast at the boat"
 
     // Barbs for another hour or run mustn't stay up under a new label: an
     // answer still on its way is ignored, and the barbs go until the next.
@@ -172,8 +213,10 @@ Item {
         windOn = !windOn;
         windError = "";
         forgetWind();
-        if (!windOn) windAt = 0;
-        else windSettle.restart();
+        if (!windOn) {
+            windAt = 0;
+            windPlaying = false;
+        } else windSettle.restart();
     }
     // An hour the clock has reached is now; one past the forecast's end is
     // its last.
@@ -183,6 +226,7 @@ Item {
         return at > now ? at : 0;
     }
     function stepWind(d) {
+        windPlaying = false;
         if (!windOn) windOn = true;
         var next = clampWind((windAt > 0 ? windAt : hourNow()) + d * 3600e3);
         if (next !== windAt) {
@@ -191,10 +235,81 @@ Item {
         }
         windSettle.restart();
     }
+    // The hour `i` on from the one under way, 0 being now: where the
+    // scrubber and play land. An hour already fetched shows at once.
+    function scrubTo(i) {
+        if (!windOn) windOn = true;
+        i = Math.max(0, Math.min(windSpan, Math.round(i)));
+        var next = i === 0 ? 0 : clampWind(hourNow() + i * 3600e3);
+        if (next === windAt) return;
+        windAt = next;
+        forgetWind();
+        requestWind();
+    }
+    // Space: the hours one after another, from now if at the end.
+    function togglePlay() {
+        if (!windOn) windOn = true;
+        if (windPlaying) {
+            windPlaying = false;
+            return;
+        }
+        if (windSpan === 0) {
+            toast("No forecast hours ahead to play");
+            return;
+        }
+        if (windHours >= windSpan) scrubTo(0);
+        windPlaying = true;
+        prefetchWind(windHours + 1);
+    }
+    Timer {
+        interval: 900
+        repeat: true
+        running: app.windPlaying && app.windOn
+        onTriggered: {
+            if (app.windHours >= app.windSpan) {
+                app.windPlaying = false;
+                return;
+            }
+            app.scrubTo(app.windHours + 1);
+            app.prefetchWind(app.windHours + 1);
+        }
+    }
     // The view and a margin around it, thinned to a barb every 70 pixels
-    // or so.
+    // or so; null when there's no view.
+    function windArea() {
+        if (map.width <= 0 || map.height <= 0) return null;
+        var w = map.width / map.world, h = map.height / map.world;
+        function clampLat(v) { return Math.max(-85, Math.min(85, v)); }
+        var north = clampLat(Geo.lat(map.cy - h * 0.6)), south = clampLat(Geo.lat(map.cy + h * 0.6));
+        var west = Math.max(-180, Geo.lon(map.cx - w * 0.6)), east = Math.min(180, Geo.lon(map.cx + w * 0.6));
+        if (!(south < north && west < east)) return null;
+        return {south: south, west: west, north: north, east: east,
+                max: Math.max(1, Math.min(2000, Math.floor(map.width * map.height / 4900)))};
+    }
+    // Hours are kept for one view and one run: anything else starts afresh.
+    function windCacheFor(area) {
+        var f = wind.forecast;
+        var view = [area.south, area.west, area.north, area.east].map(v => v.toFixed(5)).join(",")
+            + "," + area.max + "|" + (f && typeof f.run === "string" ? f.run : "");
+        if (view !== windView || Object.keys(windCache).length > 120) {
+            windView = view;
+            windCache = ({});
+            windAsked = ({});
+        }
+    }
+    // Asks for one hour's field, or now's with `at` 0, under `id`. An
+    // hour's answer is kept; now's isn't, since now moves.
+    function askWind(area, at, id) {
+        var request = {type: "field", id: id, south: area.south, west: area.west, north: area.north,
+                       east: area.east, max: area.max};
+        if (at > 0) {
+            request.time = new Date(at).toISOString().slice(0, 19) + "Z";
+            windAsked[id] = String(at);
+        }
+        wind.send(request);
+    }
     function requestWind() {
-        if (!windOn || !wind.connected || map.width <= 0 || map.height <= 0) return;
+        if (!windOn || !wind.connected) return;
         var f = wind.forecast;
         // Nothing to ask: no forecast, or one that has run out.
         if (!f || f.status === "none" || f.status === "expired") {
@@ -206,28 +321,46 @@ Item {
             windAt = at;
             forgetWind();
         }
-        var w = map.width / map.world, h = map.height / map.world;
-        function clampLat(v) { return Math.max(-85, Math.min(85, v)); }
-        var north = clampLat(Geo.lat(map.cy - h * 0.6)), south = clampLat(Geo.lat(map.cy + h * 0.6));
-        var west = Math.max(-180, Geo.lon(map.cx - w * 0.6)), east = Math.min(180, Geo.lon(map.cx + w * 0.6));
-        if (!(south < north && west < east)) return;
-        var request = {
-            type: "field", id: ++windId, south: south, west: west, north: north, east: east,
-            max: Math.max(1, Math.min(2000, Math.floor(map.width * map.height / 4900)))
-        };
-        if (windAt > 0) request.time = new Date(windAt).toISOString().slice(0, 19) + "Z";
-        wind.send(request);
+        var area = windArea();
+        if (!area) return;
+        windCacheFor(area);
+        var cached = windAt > 0 ? windCache[String(windAt)] : undefined;
+        if (cached) {
+            // An answer still on its way is for another hour now.
+            windId += 1;
+            windField = cached;
+            windError = "";
+            return;
+        }
+        askWind(area, windAt, ++windId);
+    }
+    // Hour `i` fetched ahead while playing, so it's there when play is.
+    function prefetchWind(i) {
+        if (!windOn || !wind.connected || i <= 0 || i > windSpan) return;
+        var area = windArea();
+        if (!area) return;
+        windCacheFor(area);
+        var key = String(hourNow() + i * 3600e3);
+        if (windCache[key] || Object.keys(windAsked).some(id => windAsked[id] === key)) return;
+        askWind(area, Number(key), "ahead" + (++windAhead));
     }
     Timer { id: windSettle; interval: 150; onTriggered: app.requestWind() }
     Connections {
         target: app.wind
         function onField(m) {
+            // Kept under the hour it answers, if it's for this view and run.
+            var key = app.windAsked[m.id];
+            if (key !== undefined) {
+                delete app.windAsked[m.id];
+                if (typeof m.time === "string" && Date.parse(m.time) === Number(key)) app.windCache[key] = m;
+            }
             if (m.id !== app.windId) return;
             app.windField = m;
             app.windError = "";
         }
         // Said once, not at every minute's new request.
         function onRejected(m) {
+            delete app.windAsked[m.id];
             if (m.id !== app.windId) return;
             app.windField = null;
             var said = String(m.message || "");
@@ -460,6 +593,7 @@ Item {
         else if (t === "b") toggleWind();
         else if (t === "]") stepWind(1);
         else if (t === "[") stepWind(-1);
+        else if (t === " ") togglePlay();
         else if (t === "?") sheet.visible = true;
         else if (t === "q") dismiss();
         else return false;
@@ -489,13 +623,18 @@ Item {
             }
         }
         function hover(x: real, y: real): void { map.hover = Qt.point(x, y); map.hovering = true; }
+        // The scrubber, `hours` on from now, and play.
+        function scrub(hours: int): void { app.windPlaying = false; app.scrubTo(hours); }
+        function play(): void { app.togglePlay(); }
         function status(): string {
             return JSON.stringify({lat: map.centerLat, lon: map.centerLon, zoom: map.zoom, follow: app.follow,
                                    level: map.level, shown: map.shownLevel, tiles: Object.keys(map.tiles).length,
                                    engine: app.helm.connected, charts: app.helm.state ? app.helm.state.charts.status : "",
                                    keel: app.keel.connected, fix: app.fix ? app.fix.status : "", card: app.cardOpen,
                                    features: app.result ? app.result.features.length : -1, waypoint: app.waypoint,
-                                   wind: app.windOn, windHours: app.windHours,
+                                   wind: app.windOn, windHours: app.windHours, windSpan: app.windSpan,
+                                   playing: app.windPlaying, cached: Object.keys(app.windCache).length,
+                                   scrub: app.scrubText,
                                    night: app.theme.night, nightTiles: map.nightTiles,
                                    barbs: app.windField ? app.windField.points.length : -1,
                                    stations: app.windStations.length,
@@ -621,6 +760,189 @@ Item {
                 }
             }
 
+            // The wind over time: the forecast at the boat hour by hour, an
+            // hour to drag or click to, and play. Only with the barbs on and
+            // forecast hours ahead.
+            Rectangle {
+                id: scrubber
+                visible: app.windOn && app.windSpan > 0 && app.notice === ""
+                z: 30
+                anchors { left: parent.left; right: parent.right; bottom: statusBar.top; margins: 10 }
+                height: app.theme.baseSize * 2 + 36
+                color: Qt.alpha(app.theme.background, 0.88)
+                border.width: 1
+                border.color: Qt.alpha(app.theme.foreground, 0.25)
+                // Clicks between the controls don't reach the chart.
+                MouseArea { anchors.fill: parent }
+
+                Rectangle {
+                    id: playButton
+                    anchors { left: parent.left; leftMargin: 10; verticalCenter: parent.verticalCenter }
+                    width: 30
+                    height: 30
+                    color: app.windPlaying ? app.theme.accent : "transparent"
+                    border.width: 1
+                    border.color: app.windPlaying ? app.theme.accent : Qt.alpha(app.theme.foreground, 0.35)
+                    Label {
+                        anchors.centerIn: parent
+                        text: app.windPlaying ? "❚❚" : "▶"
+                        color: app.windPlaying ? app.theme.background : app.theme.foreground
+                        font.pixelSize: app.theme.baseSize - 1
+                    }
+                    MouseArea { anchors.fill: parent; onClicked: app.togglePlay() }
+                }
+
+                Column {
+                    id: readout
+                    anchors { right: parent.right; rightMargin: 12; verticalCenter: parent.verticalCenter }
+                    width: app.theme.baseSize * 16
+                    spacing: 2
+                    Label {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignRight
+                        text: app.scrubText
+                        font.bold: true
+                    }
+                    Label {
+                        width: parent.width
+                        horizontalAlignment: Text.AlignRight
+                        text: app.scrubWhere
+                        color: Qt.alpha(app.theme.foreground, 0.65)
+                        font.pixelSize: app.theme.baseSize - 2
+                    }
+                }
+
+                Item {
+                    id: hoursBar
+                    anchors { left: playButton.right; leftMargin: 14; right: readout.left; rightMargin: 18
+                              top: parent.top; bottom: parent.bottom; topMargin: 6; bottomMargin: 4 }
+                    readonly property real step: app.windSpan > 0 ? width / app.windSpan : width
+
+                    // The forecast wind at the boat, speed shaded and gusts
+                    // dashed, over an hour's tick each: a label every few,
+                    // and the day at local midnight.
+                    Canvas {
+                        id: timeline
+                        anchors.fill: parent
+                        // Painted colors don't follow the theme on their own.
+                        property color ink: app.theme.foreground
+                        property color accent: app.theme.accent
+                        onInkChanged: requestPaint()
+                        onAccentChanged: requestPaint()
+                        onWidthChanged: requestPaint()
+                        onHeightChanged: requestPaint()
+                        Connections {
+                            target: app
+                            function onWindOutlookChanged() { timeline.requestPaint(); }
+                            function onWindSpanChanged() { timeline.requestPaint(); }
+                            function onMinuteChanged() { timeline.requestPaint(); }
+                        }
+                        onPaint: {
+                            var ctx = getContext("2d");
+                            ctx.reset();
+                            var span = app.windSpan, step = hoursBar.step, base = app.hourNow();
+                            if (span <= 0 || width <= 0) return;
+                            var fontPx = Math.max(9, app.theme.baseSize - 2);
+                            var graph = Math.max(10, height - fontPx - 12);
+                            var tickY = graph + 2;
+                            var hours = [], n, i;
+                            for (n = 0; n < app.windOutlook.length; n++) {
+                                var o = app.windOutlook[n];
+                                i = (Date.parse(o.time) - base) / 3600e3;
+                                if (i >= 0 && i <= span)
+                                    hours.push({x: i * step, kn: o.speedKn, gust: typeof o.gustKn === "number" ? o.gustKn : null});
+                            }
+                            var most = 10;
+                            for (n = 0; n < hours.length; n++) most = Math.max(most, hours[n].kn, hours[n].gust || 0);
+                            function y(kn) { return graph - kn / most * (graph - 2); }
+                            if (hours.length > 1) {
+                                ctx.beginPath();
+                                ctx.moveTo(hours[0].x, graph);
+                                for (n = 0; n < hours.length; n++) ctx.lineTo(hours[n].x, y(hours[n].kn));
+                                ctx.lineTo(hours[hours.length - 1].x, graph);
+                                ctx.closePath();
+                                ctx.globalAlpha = 0.25;
+                                ctx.fillStyle = String(accent);
+                                ctx.fill();
+                                ctx.globalAlpha = 1;
+                                ctx.beginPath();
+                                for (n = 0; n < hours.length; n++) {
+                                    if (n === 0) ctx.moveTo(hours[n].x, y(hours[n].kn));
+                                    else ctx.lineTo(hours[n].x, y(hours[n].kn));
+                                }
+                                ctx.strokeStyle = String(accent);
+                                ctx.lineWidth = 1.5;
+                                ctx.stroke();
+                                ctx.beginPath();
+                                var drawing = false;
+                                for (n = 0; n < hours.length; n++) {
+                                    if (hours[n].gust === null) { drawing = false; continue; }
+                                    if (drawing) ctx.lineTo(hours[n].x, y(hours[n].gust));
+                                    else ctx.moveTo(hours[n].x, y(hours[n].gust));
+                                    drawing = true;
+                                }
+                                ctx.globalAlpha = 0.6;
+                                ctx.strokeStyle = String(ink);
+                                ctx.lineWidth = 1;
+                                if (ctx.setLineDash) ctx.setLineDash([2, 3]);
+                                ctx.stroke();
+                                if (ctx.setLineDash) ctx.setLineDash([]);
+                                ctx.globalAlpha = 1;
+                            }
+                            var every = 24, choices = [1, 2, 3, 6, 12];
+                            for (n = 0; n < choices.length; n++) {
+                                if (choices[n] * step >= fontPx * 3.6) { every = choices[n]; break; }
+                            }
+                            ctx.strokeStyle = String(ink);
+                            ctx.fillStyle = String(ink);
+                            ctx.lineWidth = 1;
+                            ctx.textBaseline = "top";
+                            for (i = 0; i <= span; i++) {
+                                var t = new Date(base + i * 3600e3), hr = t.getHours();
+                                var x = Math.round(i * step) + 0.5, midnight = hr === 0;
+                                ctx.globalAlpha = midnight ? 0.8 : 0.45;
+                                ctx.beginPath();
+                                ctx.moveTo(x, tickY);
+                                ctx.lineTo(x, tickY + (midnight ? 8 : hr % every === 0 ? 5 : 3));
+                                ctx.stroke();
+                                var label = i === 0 ? "now" : midnight ? Qt.formatDateTime(t, "ddd")
+                                    : hr % every === 0 ? String(hr).padStart(2, "0") : "";
+                                // Kept clear of "now".
+                                if (!label || (i > 0 && i * step < fontPx * 3)) continue;
+                                ctx.globalAlpha = midnight || i === 0 ? 0.9 : 0.6;
+                                ctx.font = (midnight || i === 0 ? "bold " : "") + fontPx + "px '" + app.theme.font + "'";
+                                ctx.textAlign = i === 0 ? "left" : x > width - fontPx * 2 ? "right" : "center";
+                                ctx.fillText(label, x, tickY + 9);
+                            }
+                            ctx.globalAlpha = 1;
+                        }
+                    }
+                    // The hour chosen.
+                    Rectangle {
+                        x: app.windHours * hoursBar.step - 1.5
+                        width: 3
+                        height: hoursBar.height
+                        color: app.theme.accent
+                    }
+                    // Drag or click to an hour; the wheel steps them. A little
+                    // wider than the track, so its ends are easy to grab.
+                    MouseArea {
+                        anchors { fill: parent; leftMargin: -8; rightMargin: -8 }
+                        preventStealing: true
+                        function hourAt(x) { return (x - 8) / hoursBar.step; }
+                        onPressed: m => {
+                            app.windPlaying = false;
+                            app.scrubTo(hourAt(m.x));
+                        }
+                        onPositionChanged: m => { if (pressed) app.scrubTo(hourAt(m.x)); }
+                        onWheel: w => {
+                            app.windPlaying = false;
+                            app.scrubTo(app.windHours + (w.angleDelta.y > 0 ? -1 : 1));
+                        }
+                    }
+                }
+            }
+
             // No engine, no charts, or charts still being read.
             Rectangle {
                 visible: app.notice !== ""
@@ -660,7 +982,9 @@ Item {
             Rectangle {
                 visible: app.toastText !== ""
                 z: 31
-                anchors { horizontalCenter: map.horizontalCenter; bottom: map.bottom; bottomMargin: 14 }
+                // Above the scrubber when it's up.
+                anchors { horizontalCenter: map.horizontalCenter; bottom: scrubber.visible ? scrubber.top : map.bottom
+                          bottomMargin: scrubber.visible ? 8 : 14 }
                 width: Math.min(map.width - 40, toastLabel.implicitWidth + 24)
                 height: 28
                 color: app.theme.background
@@ -769,7 +1093,8 @@ Item {
                             ["w  right-click", "waypoint at the cursor"],
                             ["W", "clear the waypoint"],
                             ["b", "wind barbs from omawind: forecast, and measured on dots"],
-                            ["[  ]", "the wind an hour earlier, later"],
+                            ["[  ]  the time bar", "the wind an hour earlier, later; drag"],
+                            ["space", "play the wind hour by hour"],
                             ["n", "Night Watch: red on black"],
                             ["Esc", "close the card"],
                             ["?", "these keys"],
