@@ -3,9 +3,10 @@ import Quickshell
 import Quickshell.Io
 import "Geo.js" as Geo
 
-// The chartplotter window: the chart, the boat and AIS from omakeel, a
-// status bar, and the keys. Run standalone (ui/shell.qml) it owns its
-// process; as the shell's panel the shell opens and hides it.
+// The chartplotter window: the chart, the boat and AIS from omakeel, wind
+// barbs from omawind, a status bar, and the keys. Run standalone
+// (ui/shell.qml) it owns its process; as the shell's panel the shell opens
+// and hides it.
 Item {
     id: app
 
@@ -33,6 +34,7 @@ Item {
     property Theme theme: Theme {}
     property Helm helm: Helm {}
     property Keel keel: Keel {}
+    property Wind wind: Wind { wanted: app.windOn }
 
     // Quickshell keeps a process alive after its last window closes.
     Connections {
@@ -119,6 +121,101 @@ Item {
         function onConnectedChanged() { if (!app.helm.connected && app.cardOpen && app.result === null) app.result = {features: [], lost: true}; }
     }
 
+    // ---------------------------------------------------------- the wind
+
+    // omawind's wind barbs, now or whole hours ahead: b, [ and ].
+    property bool windOn: false
+    property int windHours: 0
+    property int windId: 0
+    property var windField: null    // the last `field` asked for
+    property string windError: ""
+
+    // The top of the hour under way, `hours` ahead, as a protocol time.
+    function windTime(hours) {
+        var hour = Math.floor(Date.now() / 3600e3) * 3600e3 + hours * 3600e3;
+        return new Date(hour).toISOString().slice(0, 19) + "Z";
+    }
+    // How many hours ahead the forecast reaches.
+    function windReach() {
+        var f = wind.forecast;
+        var last = f && typeof f.last === "string" ? Date.parse(f.last) : NaN;
+        if (isNaN(last)) return 0;
+        return Math.max(0, Math.floor((last - Math.floor(Date.now() / 3600e3) * 3600e3) / 3600e3));
+    }
+    function toggleWind() {
+        windOn = !windOn;
+        windError = "";
+        if (!windOn) {
+            windField = null;
+            windHours = 0;
+        } else {
+            windSettle.restart();
+        }
+    }
+    function stepWind(d) {
+        if (!windOn) windOn = true;
+        windHours = Math.max(0, Math.min(windReach(), windHours + d));
+        windSettle.restart();
+    }
+    // The view and a margin around it, thinned to a barb every 70 pixels
+    // or so.
+    function requestWind() {
+        if (!windOn || !wind.connected || !wind.forecast || wind.forecast.status === "none"
+                || map.width <= 0 || map.height <= 0) return;
+        var w = map.width / map.world, h = map.height / map.world;
+        var request = {
+            type: "field", id: ++windId,
+            north: Math.min(85, Geo.lat(map.cy - h * 0.6)), south: Math.max(-85, Geo.lat(map.cy + h * 0.6)),
+            west: Math.max(-180, Geo.lon(map.cx - w * 0.6)), east: Math.min(180, Geo.lon(map.cx + w * 0.6)),
+            max: Math.max(1, Math.min(2000, Math.floor(map.width * map.height / 4900)))
+        };
+        if (windHours > 0) request.time = windTime(windHours);
+        wind.send(request);
+    }
+    Timer { id: windSettle; interval: 150; onTriggered: app.requestWind() }
+    Connections {
+        target: app.wind
+        function onField(m) {
+            if (m.id !== app.windId) return;
+            app.windField = m;
+            app.windError = "";
+        }
+        // Said once, not at every minute's new request.
+        function onRejected(m) {
+            if (m.id !== app.windId) return;
+            app.windField = null;
+            var said = String(m.message || "");
+            if (said !== app.windError) app.toast(said);
+            app.windError = said;
+        }
+        // A new minute or a new run: ask again.
+        function onStateChanged() {
+            if (!app.wind.state) app.windField = null;
+            else if (app.windOn) windSettle.restart();
+        }
+    }
+    Connections {
+        target: map
+        function onCxChanged() { if (app.windOn) windSettle.restart(); }
+        function onCyChanged() { if (app.windOn) windSettle.restart(); }
+        function onZoomChanged() { if (app.windOn) windSettle.restart(); }
+        function onWidthChanged() { if (app.windOn) windSettle.restart(); }
+        function onHeightChanged() { if (app.windOn) windSettle.restart(); }
+    }
+    readonly property string windText: {
+        if (wind.incompatible) return "WIND  omawind speaks a newer protocol: update omahelm";
+        if (!wind.connected) return "WIND  omawind isn't running";
+        var f = wind.forecast;
+        if (!f || f.status === "none") return "WIND  no forecast yet";
+        var when = windHours > 0
+            ? "+" + windHours + " h  " + Qt.formatDateTime(new Date(windTime(windHours)), "ddd HH:mm")
+            : "now";
+        var out = "WIND " + when + "   HRRR " + Qt.formatDateTime(new Date(f.run), "HH:mm") + " run";
+        if (f.status === "old") out += ", old";
+        if (f.status === "expired") out += ", run out";
+        return out;
+    }
+
     // ---------------------------------------------------------- the view
 
     // $XDG_STATE_HOME/omahelm/view.json: the last camera and the waypoint.
@@ -148,6 +245,7 @@ Item {
             map.lookAt(s.lat, s.lon);
             if (s.waypoint && typeof s.waypoint.lat === "number" && typeof s.waypoint.lon === "number")
                 waypoint = {lat: s.waypoint.lat, lon: s.waypoint.lon};
+            if (s.wind === true) windOn = true;
         } else if (helm.state && helm.state.charts && helm.state.charts.extent) {
             var e = helm.state.charts.extent;
             map.fit(e.west, e.south, e.east, e.north);
@@ -172,6 +270,7 @@ Item {
         if (!placed) return;
         var view = {lat: map.centerLat, lon: map.centerLon, zoom: Math.round(map.zoom * 100) / 100};
         if (waypoint) view.waypoint = waypoint;
+        if (windOn) view.wind = true;
         var text = JSON.stringify(view);
         var slash = viewPath.lastIndexOf("/");
         writer.command = ["sh", "-c", 'mkdir -p -- "$1" && printf "%s\\n" "$3" > "$2" && mv -f -- "$2" "$4"',
@@ -282,6 +381,9 @@ Item {
             else setWaypoint(map.centerLat, map.centerLon);
         }
         else if (t === "W") { waypoint = null; }
+        else if (t === "b") toggleWind();
+        else if (t === "]") stepWind(1);
+        else if (t === "[") stepWind(-1);
         else if (t === "?") sheet.visible = true;
         else if (t === "q") dismiss();
         else return false;
@@ -316,7 +418,9 @@ Item {
                                    level: map.level, shown: map.shownLevel, tiles: Object.keys(map.tiles).length,
                                    engine: app.helm.connected, charts: app.helm.state ? app.helm.state.charts.status : "",
                                    keel: app.keel.connected, fix: app.fix ? app.fix.status : "", card: app.cardOpen,
-                                   features: app.result ? app.result.features.length : -1, waypoint: app.waypoint});
+                                   features: app.result ? app.result.features.length : -1, waypoint: app.waypoint,
+                                   wind: app.windOn, windHours: app.windHours,
+                                   barbs: app.windField ? app.windField.points.length : -1});
         }
     }
 
@@ -359,6 +463,7 @@ Item {
                 now: app.keel.now
                 track: app.track
                 waypoint: app.waypoint
+                wind: app.windField
                 onPointed: (lat, lon, x, y, action) => {
                     if (action === "waypoint") app.setWaypoint(lat, lon);
                     else app.query(lat, lon, x, y);
@@ -397,6 +502,24 @@ Item {
                     border.color: Qt.alpha(app.theme.foreground, 0.25)
                     Label { anchors.centerIn: parent; text: "?"; font.pixelSize: app.theme.baseSize - 1 }
                     MouseArea { anchors.fill: parent; onClicked: sheet.visible = true }
+                }
+            }
+
+            // The wind layer: which hour, from which run.
+            Rectangle {
+                visible: app.windOn
+                z: 30
+                anchors { top: parent.top; left: parent.left; margins: 10 }
+                height: 24
+                width: windLabel.implicitWidth + 16
+                color: Qt.alpha(app.theme.background, 0.85)
+                border.width: 1
+                border.color: Qt.alpha(app.theme.foreground, 0.25)
+                Label {
+                    id: windLabel
+                    anchors.centerIn: parent
+                    text: app.windText
+                    font.pixelSize: app.theme.baseSize - 1
                 }
             }
 
@@ -547,6 +670,8 @@ Item {
                             ["c", "centre on the boat"],
                             ["w  right-click", "waypoint at the cursor"],
                             ["W", "clear the waypoint"],
+                            ["b", "wind barbs, from omawind"],
+                            ["[  ]", "the wind an hour earlier, later"],
                             ["Esc", "close the card"],
                             ["?", "these keys"],
                             ["q", "close"]

@@ -401,6 +401,92 @@ Item {
         }
     }
 
+    // ----------------------------------------------------------------- wind
+
+    // omawind's latest `field`, or null. Each point is a wind barb: the
+    // staff points into the wind, feathers on its right as in the northern
+    // hemisphere; a half feather is 5 knots, a feather 10, a pennant 50,
+    // and a ring is calm.
+    property var wind: null
+    onWindChanged: barbs.requestPaint()
+
+    function barb(ctx, x, y, knots, fromDeg) {
+        var r = fromDeg * Math.PI / 180;
+        var dx = Math.sin(r), dy = -Math.cos(r);      // toward the wind
+        var rx = -dy, ry = dx;                        // its right
+        if (knots < 2.5) {
+            ctx.beginPath();
+            ctx.arc(x, y, 4, 0, 2 * Math.PI);
+            ctx.stroke();
+            return;
+        }
+        var len = 24;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + dx * len, y + dy * len);
+        var rest = Math.round(knots / 5) * 5;
+        var pennants = Math.floor(rest / 50);
+        rest -= pennants * 50;
+        var feathers = Math.floor(rest / 10);
+        var half = rest % 10 >= 5;
+        var at = len;
+        for (var p = 0; p < pennants; p++) {
+            ctx.moveTo(x + dx * at, y + dy * at);
+            ctx.lineTo(x + dx * at + rx * 9, y + dy * at + ry * 9);
+            ctx.lineTo(x + dx * (at - 5), y + dy * (at - 5));
+            at -= 7;
+        }
+        for (var f = 0; f < feathers; f++) {
+            ctx.moveTo(x + dx * at, y + dy * at);
+            ctx.lineTo(x + dx * (at + 3) + rx * 9, y + dy * (at + 3) + ry * 9);
+            at -= 4;
+        }
+        if (half) {
+            // A lone half feather sits in from the tip, so it isn't read as 10.
+            if (pennants === 0 && feathers === 0) at -= 4;
+            ctx.moveTo(x + dx * at, y + dy * at);
+            ctx.lineTo(x + dx * (at + 1.5) + rx * 5, y + dy * (at + 1.5) + ry * 5);
+        }
+        ctx.stroke();
+    }
+
+    Canvas {
+        id: barbs
+        anchors.fill: parent
+        z: 5
+        visible: !!map.wind
+        onPaint: {
+            var ctx = getContext("2d");
+            ctx.reset();
+            var points = map.wind && Array.isArray(map.wind.points) ? map.wind.points : [];
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            // A halo in the background colour first, so barbs read over any
+            // chart colour, then the barbs themselves.
+            var passes = [[String(map.theme.background), 4], [String(map.theme.foreground), 1.5]];
+            for (var k = 0; k < passes.length; k++) {
+                ctx.strokeStyle = passes[k][0];
+                ctx.lineWidth = passes[k][1];
+                for (var i = 0; i < points.length; i++) {
+                    var p = points[i];
+                    if (typeof p.lat !== "number" || typeof p.lon !== "number"
+                            || typeof p.speedKn !== "number" || typeof p.dirDeg !== "number") continue;
+                    var at = map.px(p.lat, p.lon);
+                    if (at.x < -30 || at.y < -30 || at.x > width + 30 || at.y > height + 30) continue;
+                    map.barb(ctx, at.x, at.y, p.speedKn, p.dirDeg);
+                }
+            }
+        }
+        Connections {
+            target: map
+            function onCxChanged() { if (map.wind) barbs.requestPaint(); }
+            function onCyChanged() { if (map.wind) barbs.requestPaint(); }
+            function onZoomChanged() { if (map.wind) barbs.requestPaint(); }
+        }
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+    }
+
     // ---------------------------------------------------------------- input
 
     MouseArea {
