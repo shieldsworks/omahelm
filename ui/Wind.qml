@@ -14,6 +14,8 @@ QtObject {
 
     property bool wanted: false
     property var state: null
+    // The last `stations`: the wind measured at NOAA's stations.
+    property var stations: null
     property bool incompatible: false
     readonly property bool connected: socket !== null && socket.connected
     readonly property var forecast: state ? state.forecast : null
@@ -32,11 +34,14 @@ QtObject {
         if (m.v !== wind.version) {
             wind.incompatible = true;
             wind.state = null;
+            wind.stations = null;
             wind.socket.connected = false;
             return;
         }
         if (m.type === "state") {
             if (m.forecast !== null && typeof m.forecast === "object") wind.state = m;
+        } else if (m.type === "stations") {
+            if (Array.isArray(m.stations)) wind.stations = m;
         } else if (m.type === "field") {
             if (Array.isArray(m.points)) wind.field(m);
         } else if (m.type === "error") {
@@ -60,6 +65,7 @@ QtObject {
             const previous = socket;
             socket = null;
             state = null;
+            stations = null;
             previous.destroy();
         }
     }
@@ -72,7 +78,7 @@ QtObject {
             parser: SplitParser {
                 onRead: data => wind.receive(data)
             }
-            onConnectedChanged: if (!connected) wind.state = null
+            onConnectedChanged: if (!connected) { wind.state = null; wind.stations = null; }
         }
     }
 

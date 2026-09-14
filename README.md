@@ -65,7 +65,7 @@ skipped; `omahelm index` lists them.
 | `i` | What's charted at the centre |
 | `w`, right-click | Set a waypoint: bearing, range and ETA from the boat |
 | `W` | Clear the waypoint |
-| `b` | Wind barbs, from [omawind](https://github.com/shieldsworks/omawind) |
+| `b` | Wind barbs, from [omawind](https://github.com/shieldsworks/omawind): the forecast, and the wind NOAA's stations measured |
 | `[` `]` | The wind an hour earlier, later |
 | `n` | Night Watch: red on black, to keep your night vision |
 | `?` | Keys |
@@ -74,6 +74,13 @@ skipped; `omahelm index` lists them.
 
 The status bar shows the fix, speed and course over ground, where the
 pointer is and how far and which way it lies from the boat, and the scale.
+
+With the barbs on, the wind measured at NOAA's stations shows over the
+forecast: the buoys offshore, and the piers and tide gauges around the Bay.
+Each is a barb in the theme's accent colour on a dot, with its knots on the
+far side: `7g11` is 7 knots gusting 11. Point at one for its name and how
+old the report is. They're for now only, so `]` to a forecast hour hides
+them.
 
 ## Settings
 

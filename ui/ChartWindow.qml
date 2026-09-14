@@ -249,18 +249,42 @@ Item {
         function onWidthChanged() { if (app.windOn) windSettle.restart(); }
         function onHeightChanged() { if (app.windOn) windSettle.restart(); }
     }
+    // The wind the stations measured: with the barbs, and only for now.
+    readonly property var windStations: windOn && windAt === 0 && wind.stations ? wind.stations.stations : []
     readonly property string windText: {
         void app.minute;
         if (wind.incompatible) return "WIND  omawind speaks a newer protocol: update omahelm";
         if (!wind.connected) return "WIND  omawind isn't running";
+        var s = wind.stations;
+        var measured = windAt > 0 || !s ? ""
+            : windStations.length ? "   " + windStations.length + " stations"
+            : s.status === "error" ? "   stations unreachable" : "";
         var f = wind.forecast;
-        if (!f || f.status === "none") return "WIND  no forecast yet";
+        if (!f || f.status === "none") return "WIND  no forecast yet" + measured;
         // The run the barbs on show came from, once they're in.
         var run = windField && typeof windField.run === "string" ? windField.run : f.run;
         var runText = "HRRR " + Qt.formatDateTime(new Date(run), "HH:mm") + " run";
-        if (f.status === "expired") return "WIND  the " + runText + " has run out";
+        if (f.status === "expired") return "WIND  the " + runText + " has run out" + measured;
         var when = windAt > 0 ? "+" + windHours + " h  " + Qt.formatDateTime(new Date(windAt), "ddd HH:mm") : "now";
-        return "WIND " + when + "   " + runText + (f.status === "old" ? ", old" : "");
+        return "WIND " + when + "   " + runText + (f.status === "old" ? ", old" : "") + measured;
+    }
+    // A station under the pointer: its name, wind as the bar puts it
+    // (`110°T 3G4 kn`), and when it was taken.
+    function stationText(s) {
+        void app.minute;
+        var out = (s.name || s.id) + "  ";
+        if (typeof s.dirDeg !== "number") out += "calm";
+        else {
+            var kn = Math.round(s.speedKn);
+            var gust = typeof s.gustKn === "number" && Math.round(s.gustKn) > kn ? "G" + Math.round(s.gustKn) : "";
+            out += Geo.degrees(s.dirDeg) + "T " + kn + gust + " kn";
+        }
+        var t = Date.parse(s.time);
+        if (!isNaN(t)) {
+            var ago = Math.max(0, Math.round((Date.now() - t) / 60000));
+            out += "  at " + Qt.formatDateTime(new Date(t), "HH:mm") + ", " + ago + " min ago";
+        }
+        return out;
     }
 
     // ---------------------------------------------------------- the view
@@ -378,6 +402,7 @@ Item {
         : fix.status === "ok" ? theme.foreground : theme.yellow
     readonly property string cursorText: {
         if (!map.hovering) return "";
+        if (map.hoverStation) return stationText(map.hoverStation);
         var out = "+ " + Geo.position(map.hoverLat, map.hoverLon);
         if (hasPosition)
             out += "  " + Geo.degrees(Geo.bearing(fix.lat, fix.lon, map.hoverLat, map.hoverLon)) + "T "
@@ -471,7 +496,9 @@ Item {
                                    features: app.result ? app.result.features.length : -1, waypoint: app.waypoint,
                                    wind: app.windOn, windHours: app.windHours,
                                    night: app.theme.night, nightTiles: map.nightTiles,
-                                   barbs: app.windField ? app.windField.points.length : -1});
+                                   barbs: app.windField ? app.windField.points.length : -1,
+                                   stations: app.windStations.length,
+                                   hoverStation: map.hoverStation ? map.hoverStation.id : ""});
         }
     }
 
@@ -515,6 +542,7 @@ Item {
                 track: app.track
                 waypoint: app.waypoint
                 wind: app.windField
+                stations: app.windStations
                 onPointed: (lat, lon, x, y, action) => {
                     if (action === "waypoint") app.setWaypoint(lat, lon);
                     else app.query(lat, lon, x, y);
@@ -736,7 +764,7 @@ Item {
                             ["c", "centre on the boat"],
                             ["w  right-click", "waypoint at the cursor"],
                             ["W", "clear the waypoint"],
-                            ["b", "wind barbs, from omawind"],
+                            ["b", "wind barbs from omawind: forecast, and measured on dots"],
                             ["[  ]", "the wind an hour earlier, later"],
                             ["n", "Night Watch: red on black"],
                             ["Esc", "close the card"],
