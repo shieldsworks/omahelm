@@ -286,7 +286,8 @@ Item {
             // does for CPA, so the target sits where the danger is judged.
             readonly property real age: (typeof t.ageSeconds === "number" ? t.ageSeconds : 0)
                                         + Math.max(0, (map.now - map.targetsAt) / 1000)
-            readonly property bool moving: typeof t.cogDeg === "number" && typeof t.sogKn === "number" && t.sogKn >= 0.5
+            // As omakeel does: any known course and speed, however slow.
+            readonly property bool moving: typeof t.cogDeg === "number" && typeof t.sogKn === "number"
             readonly property var here: moving ? Geo.destination(t.lat, t.lon, t.cogDeg, t.sogKn * age / 3600) : ({lat: t.lat, lon: t.lon})
             readonly property point at: map.px(here.lat, here.lon)
             readonly property bool headed: typeof t.headingDeg === "number" && t.headingDeg < 360

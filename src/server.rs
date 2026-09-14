@@ -91,42 +91,41 @@ fn mtime(path: &Path) -> Option<SystemTime> {
 }
 
 /// What the watcher compares: the theme (through its symlink), the
-/// settings and the chart index.
-fn watched(charts: &Path) -> Vec<(PathBuf, Option<SystemTime>)> {
+/// settings, the chart index, and every chart file's size and time. A
+/// fingerprint rather than the newest time: a chart copied over another
+/// with its old timestamp kept is still a change.
+fn watched(charts: &Path) -> Vec<String> {
     let theme = style::theme_path();
     let theme = std::fs::canonicalize(&theme).unwrap_or(theme);
-    [
-        theme,
-        style::config_path(),
-        charts.join("index.json"),
-        charts.join("ENC_ROOT"),
-    ]
-    .into_iter()
-    .map(|p| {
-        let t = mtime(&p);
-        (p, t)
-    })
-    // An update copied into a cell's folder changes only that folder.
-    .chain(std::iter::once((
-        charts.join("ENC_ROOT/*"),
-        newest_cell(charts),
-    )))
-    .collect()
+    let mut out: Vec<String> = [theme, style::config_path(), charts.join("index.json")]
+        .iter()
+        .map(|p| format!("{}|{:?}", p.display(), mtime(p)))
+        .collect();
+    out.push(cells_fingerprint(charts));
+    out
 }
 
-/// The newest cell folder or chart file: a cell or update copied over an
-/// old one in place changes only its own timestamp.
-fn newest_cell(charts: &Path) -> Option<SystemTime> {
-    let mut newest = None;
-    for cell in std::fs::read_dir(charts.join("ENC_ROOT")).ok()?.flatten() {
-        newest = newest.max(mtime(&cell.path()));
-        if let Ok(files) = std::fs::read_dir(cell.path()) {
-            for f in files.flatten() {
-                newest = newest.max(f.metadata().and_then(|m| m.modified()).ok());
+fn cells_fingerprint(charts: &Path) -> String {
+    let mut files = Vec::new();
+    if let Ok(cells) = std::fs::read_dir(charts.join("ENC_ROOT")) {
+        for cell in cells.flatten() {
+            if let Ok(rd) = std::fs::read_dir(cell.path()) {
+                for f in rd.flatten() {
+                    if let Ok(m) = f.metadata() {
+                        files.push((f.path(), m.len(), m.modified().ok()));
+                    }
+                }
             }
         }
     }
-    newest
+    files.sort();
+    let mut h = Fnv::default();
+    for (p, len, t) in &files {
+        h.write(p.as_os_str().as_encoded_bytes());
+        h.write(&len.to_le_bytes());
+        h.write(format!("{t:?}").as_bytes());
+    }
+    format!("{} files {:016x}", files.len(), h.0)
 }
 
 fn load_style() -> (Style, Vec<String>) {

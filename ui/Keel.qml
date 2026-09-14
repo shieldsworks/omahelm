@@ -17,6 +17,8 @@ QtObject {
     readonly property bool connected: socket !== null && socket.connected
     // When the last state and targets arrived, and a clock to age them by.
     property real stateAt: 0
+    // The fix's age when that state arrived.
+    property real stateAge: 0
     property real targetsAt: 0
     property real now: Date.now()
 
@@ -36,6 +38,7 @@ QtObject {
         if (message.type === "state") {
             keel.fix = message.fix !== null && typeof message.fix === "object" ? message.fix : null;
             keel.stateAt = Date.now();
+            keel.stateAge = keel.fix && typeof keel.fix.ageSeconds === "number" ? keel.fix.ageSeconds : 0;
         } else if (message.type === "targets" && Array.isArray(message.targets)) {
             keel.targets = message.targets.filter(t => t !== null && typeof t === "object" && typeof t.mmsi === "number");
             keel.targetsAt = Date.now();
@@ -73,11 +76,15 @@ QtObject {
         onTriggered: {
             keel.now = Date.now();
             const quiet = keel.now - keel.stateAt;
-            if (keel.fix && keel.fix.status === "ok" && quiet > 5000) {
-                const f = Object.assign({}, keel.fix);
-                f.status = "stale";
-                f.ageSeconds = (typeof f.ageSeconds === "number" ? f.ageSeconds : 0) + Math.round(quiet / 1000);
-                keel.fix = f;
+            // Stale, and its age still counting, until omakeel speaks again.
+            if (keel.fix && quiet > 5000) {
+                const age = keel.stateAge + Math.round(quiet / 1000);
+                if (keel.fix.status === "ok" || keel.fix.ageSeconds !== age) {
+                    const f = Object.assign({}, keel.fix);
+                    if (f.status === "ok") f.status = "stale";
+                    f.ageSeconds = age;
+                    keel.fix = f;
+                }
             }
         }
     }
