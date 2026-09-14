@@ -14,6 +14,8 @@ Item {
     property var theme
     property var fix: null
     property var targets: []
+    property real targetsAt: 0
+    property real now: Date.now()
     property var track: []          // [{x, y}] in Mercator units, oldest first
     property var waypoint: null     // {lat, lon}
     property var mark: null         // {lat, lon}: the point a query asked about
@@ -280,14 +282,24 @@ Item {
             id: target
             required property var modelData
             readonly property var t: modelData
-            readonly property point at: map.px(t.lat, t.lon)
-            readonly property real course: typeof t.cogDeg === "number" ? t.cogDeg : 0
-            readonly property real heading: typeof t.headingDeg === "number" && t.headingDeg < 360 ? t.headingDeg : course
-            readonly property real vector: typeof t.sogKn === "number" ? t.sogKn * 0.1 * 1852 / map.metresPerPixel : 0
+            // Carried forward along its course and speed to now, as omakeel
+            // does for CPA, so the target sits where the danger is judged.
+            readonly property real age: (typeof t.ageSeconds === "number" ? t.ageSeconds : 0)
+                                        + Math.max(0, (map.now - map.targetsAt) / 1000)
+            readonly property bool moving: typeof t.cogDeg === "number" && typeof t.sogKn === "number" && t.sogKn >= 0.5
+            readonly property var here: moving ? Geo.destination(t.lat, t.lon, t.cogDeg, t.sogKn * age / 3600) : ({lat: t.lat, lon: t.lon})
+            readonly property point at: map.px(here.lat, here.lon)
+            readonly property bool headed: typeof t.headingDeg === "number" && t.headingDeg < 360
+            readonly property real course: typeof t.cogDeg === "number" ? t.cogDeg : headed ? t.headingDeg : 0
+            readonly property real heading: headed ? t.headingDeg : course
+            // No course, no vector: never a made-up one pointing north.
+            readonly property real vector: moving ? t.sogKn * 0.1 * 1852 / map.metresPerPixel : 0
             readonly property color ink: t.danger ? map.theme.red : map.theme.foreground
             x: at.x
             y: at.y
             z: t.danger ? 12 : 11
+            // A report more than three minutes old is shown faded.
+            opacity: age > 180 ? 0.45 : 1
             visible: at.x > -80 && at.x < map.width + 80 && at.y > -80 && at.y < map.height + 80
             Item {
                 rotation: target.course

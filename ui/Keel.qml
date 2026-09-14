@@ -15,6 +15,10 @@ QtObject {
     property var targets: []
     property bool incompatible: false
     readonly property bool connected: socket !== null && socket.connected
+    // When the last state and targets arrived, and a clock to age them by.
+    property real stateAt: 0
+    property real targetsAt: 0
+    property real now: Date.now()
 
     function receive(line) {
         let message;
@@ -31,8 +35,10 @@ QtObject {
         }
         if (message.type === "state") {
             keel.fix = message.fix !== null && typeof message.fix === "object" ? message.fix : null;
+            keel.stateAt = Date.now();
         } else if (message.type === "targets" && Array.isArray(message.targets)) {
             keel.targets = message.targets.filter(t => t !== null && typeof t === "object" && typeof t.mmsi === "number");
+            keel.targetsAt = Date.now();
         }
     }
 
@@ -54,6 +60,24 @@ QtObject {
                     keel.fix = null;
                     keel.targets = [];
                 }
+            }
+        }
+    }
+
+    // omakeel re-sends its state every second. Silence from a hub that is
+    // hung but still connected must not leave an old fix looking live.
+    property Timer clock: Timer {
+        interval: 1000
+        repeat: true
+        running: true
+        onTriggered: {
+            keel.now = Date.now();
+            const quiet = keel.now - keel.stateAt;
+            if (keel.fix && keel.fix.status === "ok" && quiet > 5000) {
+                const f = Object.assign({}, keel.fix);
+                f.status = "stale";
+                f.ageSeconds = (typeof f.ageSeconds === "number" ? f.ageSeconds : 0) + Math.round(quiet / 1000);
+                keel.fix = f;
             }
         }
     }

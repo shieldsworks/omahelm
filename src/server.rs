@@ -114,12 +114,19 @@ fn watched(charts: &Path) -> Vec<(PathBuf, Option<SystemTime>)> {
     .collect()
 }
 
+/// The newest cell folder or chart file: a cell or update copied over an
+/// old one in place changes only its own timestamp.
 fn newest_cell(charts: &Path) -> Option<SystemTime> {
-    std::fs::read_dir(charts.join("ENC_ROOT"))
-        .ok()?
-        .flatten()
-        .filter_map(|e| e.metadata().and_then(|m| m.modified()).ok())
-        .max()
+    let mut newest = None;
+    for cell in std::fs::read_dir(charts.join("ENC_ROOT")).ok()?.flatten() {
+        newest = newest.max(mtime(&cell.path()));
+        if let Ok(files) = std::fs::read_dir(cell.path()) {
+            for f in files.flatten() {
+                newest = newest.max(f.metadata().and_then(|m| m.modified()).ok());
+            }
+        }
+    }
+    newest
 }
 
 fn load_style() -> (Style, Vec<String>) {

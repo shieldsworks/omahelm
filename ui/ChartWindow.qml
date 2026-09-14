@@ -70,7 +70,7 @@ Item {
         map.lookAt(fix.lat, fix.lon);
     }
     function centerOnBoat() {
-        if (!hasPosition) { toast(keel.connected ? "No position from the GPS yet" : "No GPS: omakeel isn't running"); return; }
+        if (!hasPosition) { toast(keel.incompatible ? "omakeel speaks a newer protocol: update omahelm" : keel.connected ? "No position from the GPS yet" : "No GPS: omakeel isn't running"); return; }
         map.lookAt(fix.lat, fix.lon);
     }
 
@@ -87,6 +87,7 @@ Item {
         cardAt = Qt.point(x, y);
         cardOpen = true;
         map.mark = {lat: lat, lon: lon};
+        if (!helm.connected) { result = {features: [], lost: true}; return; }
         helm.send({type: "query", id: queryId, lat: lat, lon: lon, zoom: Math.round(map.zoom)});
     }
     function closeCard() {
@@ -104,6 +105,8 @@ Item {
         function onFeatures(m) { if (m.id === app.queryId) app.result = m; }
         function onRejected(message) { app.toast(message); }
         function onStateChanged() { app.placeCamera(); }
+        // A question the engine can no longer answer.
+        function onConnectedChanged() { if (!app.helm.connected && app.cardOpen && app.result === null) app.result = {features: [], lost: true}; }
     }
 
     // ---------------------------------------------------------- the view
@@ -206,6 +209,7 @@ Item {
 
     readonly property string units: helm.state && helm.state.settings ? helm.state.settings.units : ""
     readonly property string gpsText: {
+        if (keel.incompatible) return "GPS  omakeel speaks a newer protocol: update omahelm";
         if (!keel.connected) return "GPS  omakeel isn't running";
         if (!fix || fix.status === "none" || !hasPosition) return fix && fix.status === "nofix" ? "GPS  no fix" : "GPS  waiting";
         var head = fix.status === "ok" ? "GPS" : fix.status === "stale" ? "GPS STALE " + fix.ageSeconds + " s" : "GPS NO FIX";
@@ -341,6 +345,8 @@ Item {
                 theme: app.theme
                 fix: app.fix
                 targets: app.keel.targets
+                targetsAt: app.keel.targetsAt
+                now: app.keel.now
                 track: app.track
                 waypoint: app.waypoint
                 onPointed: (lat, lon, x, y, action) => {
@@ -459,7 +465,7 @@ Item {
                     }
                     Label {
                         visible: !!app.result && app.result.features.length === 0
-                        text: "Nothing charted here."
+                        text: app.result && app.result.lost ? "Lost the chart engine. Click again once it's back." : "Nothing charted here."
                     }
                     Repeater {
                         model: app.result ? app.result.features.slice(0, 8) : []
