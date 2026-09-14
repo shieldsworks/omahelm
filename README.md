@@ -59,7 +59,7 @@ skipped; `omahelm index` lists them.
 |---|---|
 | `h` `j` `k` `l`, arrows | Pan |
 | `+` `-`, scroll | Zoom |
-| `f` | Follow the boat |
+| `f` | Follow the boat, or stop (it opens following; panning stops it) |
 | `c` | Centre on the boat once |
 | Click | What's charted here |
 | `i` | What's charted at the centre |

@@ -45,12 +45,17 @@ Item {
     readonly property var fix: keel.fix
     readonly property bool hasPosition: !!fix && typeof fix.lat === "number" && typeof fix.lon === "number"
     readonly property bool fixOk: hasPosition && fix.status === "ok"
-    property bool follow: false
+    // The window opens following the boat; panning by hand stops it.
+    property bool follow: true
+    // The first follow zooms in from a view too wide to steer by.
+    property bool followedOnce: false
     // This session's track, in Mercator units, oldest first.
     property var track: []
     property var waypoint: null
 
     onFixChanged: {
+        // A stale position still places the boat: where it was last seen.
+        if (follow && hasPosition && placed) followBoat();
         if (!fixOk) return;
         var p = {x: Geo.mercX(fix.lon), y: Geo.mercY(fix.lat), lat: fix.lat, lon: fix.lon};
         var last = track.length ? track[track.length - 1] : null;
@@ -60,7 +65,12 @@ Item {
             next.push(p);
             track = next;
         }
-        if (follow) map.lookAt(fix.lat, fix.lon);
+    }
+
+    function followBoat() {
+        if (!followedOnce && map.zoom < 11) map.zoom = 14;
+        followedOnce = true;
+        map.lookAt(fix.lat, fix.lon);
     }
 
     function toggleFollow() {
@@ -111,8 +121,8 @@ Item {
 
     // ---------------------------------------------------------- the view
 
-    // $XDG_STATE_HOME/omahelm/view.json: the last camera, follow and the
-    // waypoint.
+    // $XDG_STATE_HOME/omahelm/view.json: the last camera and the waypoint.
+    // Following isn't kept: the window always opens following the boat.
     readonly property string viewPath: (Quickshell.env("XDG_STATE_HOME") || Quickshell.env("HOME") + "/.local/state") + "/omahelm/view.json"
     property var saved: null
     property bool savedRead: false
@@ -136,7 +146,6 @@ Item {
         if (s && typeof s.lat === "number" && typeof s.lon === "number" && typeof s.zoom === "number") {
             map.zoom = Math.max(map.minZoom, Math.min(map.maxZoom, s.zoom));
             map.lookAt(s.lat, s.lon);
-            follow = s.follow === true;
             if (s.waypoint && typeof s.waypoint.lat === "number" && typeof s.waypoint.lon === "number")
                 waypoint = {lat: s.waypoint.lat, lon: s.waypoint.lon};
         } else if (helm.state && helm.state.charts && helm.state.charts.extent) {
@@ -149,6 +158,7 @@ Item {
             map.lookAt(37.8663, -122.3148);
         }
         placed = true;
+        if (follow && hasPosition) followBoat();
     }
     Timer {
         id: firstViewWait
@@ -160,7 +170,7 @@ Item {
 
     function save() {
         if (!placed) return;
-        var view = {lat: map.centerLat, lon: map.centerLon, zoom: Math.round(map.zoom * 100) / 100, follow: follow};
+        var view = {lat: map.centerLat, lon: map.centerLon, zoom: Math.round(map.zoom * 100) / 100};
         if (waypoint) view.waypoint = waypoint;
         var text = JSON.stringify(view);
         var slash = viewPath.lastIndexOf("/");
