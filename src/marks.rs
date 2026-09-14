@@ -44,10 +44,13 @@ pub fn light(item: &Item) -> String {
             out.push_str(g);
         }
     }
-    let colours: String = item
-        .list(COLOUR)
+    // White goes unsaid on a light of one colour, not on one that
+    // alternates white and red.
+    let list = item.list(COLOUR);
+    let colours: String = list
         .iter()
         .filter_map(|c| match c {
+            1 if list.len() > 1 => Some("W"),
             3 => Some("R"),
             4 => Some("G"),
             6 => Some("Y"),
@@ -297,6 +300,8 @@ mod tests {
         assert_eq!(light(&l), "Fl(2) 2.5s");
         let l = item(&[(LITCHR, "4"), (COLOUR, "3")]);
         assert_eq!(light(&l), "Q R");
+        let l = item(&[(LITCHR, "28"), (COLOUR, "1,3"), (SIGPER, "10")]);
+        assert_eq!(light(&l), "Al WR 10s");
     }
 
     #[test]

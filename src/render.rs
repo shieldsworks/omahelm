@@ -965,10 +965,10 @@ impl Canvas<'_> {
 
     fn hazard_depth(&mut self, at: Xy, depth: Option<f64>) {
         if let Some(d) = depth.filter(|_| self.display <= MINOR_TEXT) {
-            let (main, _) = marks::depth(d, self.set.units);
+            let depth = marks::depth_number(d, self.set.units);
             let s = self.s;
             self.text(
-                &main,
+                &depth,
                 (at.0 + 7.5 * s, at.1 + 4.0 * s),
                 8.0,
                 self.pal.ink,

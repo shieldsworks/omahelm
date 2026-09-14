@@ -106,7 +106,20 @@ fn watched(charts: &Path) -> Vec<(PathBuf, Option<SystemTime>)> {
         let t = mtime(&p);
         (p, t)
     })
+    // An update copied into a cell's folder changes only that folder.
+    .chain(std::iter::once((
+        charts.join("ENC_ROOT/*"),
+        newest_cell(charts),
+    )))
     .collect()
+}
+
+fn newest_cell(charts: &Path) -> Option<SystemTime> {
+    std::fs::read_dir(charts.join("ENC_ROOT"))
+        .ok()?
+        .flatten()
+        .filter_map(|e| e.metadata().and_then(|m| m.modified()).ok())
+        .max()
 }
 
 fn load_style() -> (Style, Vec<String>) {
@@ -257,8 +270,14 @@ fn tile_path(key: &TileKey) -> String {
     format!("{}/{}/{}@{}.png", key.z, key.x, key.y, key.scale)
 }
 
-fn tile_message(key: &TileKey, path: Option<&str>, error: Option<&str>) -> String {
-    let mut m = json!({"type": "tile", "v": VERSION, "z": key.z, "x": key.x, "y": key.y, "scale": key.scale});
+fn tile_message(
+    key: &TileKey,
+    generation: &str,
+    path: Option<&str>,
+    error: Option<&str>,
+) -> String {
+    let mut m = json!({"type": "tile", "v": VERSION, "z": key.z, "x": key.x, "y": key.y,
+                       "scale": key.scale, "generation": generation});
     if let Some(p) = path {
         m["path"] = json!(p);
     }
@@ -439,9 +458,14 @@ fn worker(engine: &Arc<Engine>) {
                 .and_then(|pm| render::png(&pm))
                 .and_then(|bytes| write_atomic(&file, &bytes))
         };
+        // The look may have changed while this tile was drawn; the client
+        // has the new state and asks again.
+        if engine.view.read().expect("view lock").generation != job.generation {
+            continue;
+        }
         let message = match result {
-            Ok(()) => tile_message(&job.key, Some(&rel), None),
-            Err(e) => tile_message(&job.key, None, Some(&e)),
+            Ok(()) => tile_message(&job.key, &job.generation, Some(&rel), None),
+            Err(e) => tile_message(&job.key, &job.generation, None, Some(&e)),
         };
         engine.send(job.client, message);
     }
@@ -450,7 +474,11 @@ fn worker(engine: &Arc<Engine>) {
 fn write_atomic(file: &Path, bytes: &[u8]) -> Result<(), String> {
     let dir = file.parent().ok_or("bad tile path")?;
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let tmp = file.with_extension(format!("png.{}.tmp", std::process::id()));
+    // Two workers can draw the same tile for two clients: each writes its
+    // own temporary file.
+    static NEXT: AtomicU64 = AtomicU64::new(0);
+    let n = NEXT.fetch_add(1, Ordering::Relaxed);
+    let tmp = file.with_extension(format!("png.{}.{n}.tmp", std::process::id()));
     std::fs::write(&tmp, bytes).map_err(|e| format!("{}: {e}", tmp.display()))?;
     std::fs::rename(&tmp, file).map_err(|e| format!("{}: {e}", file.display()))
 }
@@ -489,7 +517,7 @@ fn connection(engine: &Arc<Engine>, stream: UnixStream) {
 
     let mut reader = BufReader::new(stream);
     let mut line = Vec::new();
-    loop {
+    'lines: loop {
         line.clear();
         let n = match (&mut reader)
             .take(MAX_LINE as u64 + 1)
@@ -500,10 +528,17 @@ fn connection(engine: &Arc<Engine>, stream: UnixStream) {
         };
         if n > MAX_LINE && line.last() != Some(&b'\n') {
             engine.send(id, error_message("line too long"));
-            // Skip the rest of it.
-            let mut rest = Vec::new();
-            if reader.read_until(b'\n', &mut rest).unwrap_or(0) == 0 {
-                break;
+            // Skip the rest of it, a bounded piece at a time.
+            loop {
+                line.clear();
+                match (&mut reader)
+                    .take(MAX_LINE as u64)
+                    .read_until(b'\n', &mut line)
+                {
+                    Ok(0) | Err(_) => break 'lines,
+                    Ok(_) if line.last() == Some(&b'\n') => break,
+                    Ok(_) => {}
+                }
             }
             continue;
         }
@@ -589,7 +624,7 @@ fn tiles(engine: &Arc<Engine>, id: u64, m: &Value) -> Result<(), String> {
         let rel = tile_path(&key);
         if view.tiles.join(&rel).exists() {
             drop(q);
-            engine.send(id, tile_message(&key, Some(&rel), None));
+            engine.send(id, tile_message(&key, &view.generation, Some(&rel), None));
             q = engine.queue.lock().expect("queue lock");
         } else {
             q.push_back(Job {
@@ -817,6 +852,27 @@ fn describe(chart: &Chart, item: &Item, at: [f64; 2], set: &Settings) -> Value {
                 lines.push(format!("Horizontal clearance {}", marks::depth_words(h, u)));
             }
         }
+        MAGVAR => {
+            let east_west = |v: f64| if v < 0.0 { "W" } else { "E" };
+            if let Some(v) = item.num(VALMAG) {
+                let mut t = format!(
+                    "Variation {}° {}",
+                    marks::trim_number(v.abs()),
+                    east_west(v)
+                );
+                if let Some(year) = item.attr(RYRMGV) {
+                    t.push_str(&format!(" in {year}"));
+                }
+                title = Some(t);
+            }
+            if let Some(a) = item.num(VALACM) {
+                lines.push(format!(
+                    "Changing {}′ {} a year",
+                    marks::trim_number(a.abs()),
+                    east_west(a)
+                ));
+            }
+        }
         SBDARE => {
             let b = marks::bottom(item);
             if !b.is_empty() {
@@ -873,7 +929,8 @@ mod tests {
             scale: 2,
         };
         assert_eq!(tile_path(&key), "15/5249/12655@2.png");
-        let m: Value = serde_json::from_str(&tile_message(&key, Some("p"), None)).unwrap();
+        let m: Value = serde_json::from_str(&tile_message(&key, "g", Some("p"), None)).unwrap();
+        assert_eq!(m["generation"], "g");
         assert_eq!(m["type"], "tile");
         assert_eq!(m["path"], "p");
         assert!(m.get("error").is_none());

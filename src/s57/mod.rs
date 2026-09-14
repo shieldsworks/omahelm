@@ -100,18 +100,14 @@ impl Cell {
     }
 }
 
-/// The update files for a base cell, in order: `NAME.001`, `NAME.002`, ...
-/// up to the first gap.
+/// The update files beside a base cell, in order. A reissued base cell
+/// already holds its early updates, so the first may be `.032`, not `.001`;
+/// the reader skips the ones it has and refuses a gap.
 pub fn updates(base: &Path) -> Vec<PathBuf> {
-    let mut out = Vec::new();
-    for n in 1..1000 {
-        let path = base.with_extension(format!("{n:03}"));
-        if !path.is_file() {
-            break;
-        }
-        out.push(path);
-    }
-    out
+    (1..1000)
+        .map(|n| base.with_extension(format!("{n:03}")))
+        .filter(|p| p.is_file())
+        .collect()
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -258,7 +254,11 @@ fn long_name(bits: &[u8]) -> FeatureId {
 fn attributes(data: &[u8], level: u8) -> Vec<(u16, String)> {
     let mut out = Vec::new();
     let mut i = 0;
-    while i + 2 <= data.len() && data[i] != crate::iso8211::FIELD_END {
+    // An attribute is its code and a terminated value, so a shorter tail is
+    // what's left of a field terminator. (A code can't be tested for the
+    // terminator byte: attribute 30 starts with it.)
+    let smallest = if level == 2 { 4 } else { 3 };
+    while i + smallest <= data.len() {
         let code = u16::from_le_bytes([data[i], data[i + 1]]);
         i += 2;
         let text = if level == 2 {
@@ -384,13 +384,28 @@ impl Reader {
                         }
                         self.edition = edition;
                         self.update = update;
-                    } else if update <= self.update {
-                        // Already in a reissued base cell.
-                        self.skip = true;
-                        return Ok(());
                     } else {
+                        let name = row.text("DSNM");
+                        let stem = name.split('.').next().unwrap_or("");
+                        if stem != self.name {
+                            return Err(format!("update for {stem}, not {}", self.name));
+                        }
                         if edition == 0 {
                             self.cancelled = true;
+                        } else if edition != self.edition {
+                            return Err(format!(
+                                "update {update} is for edition {edition}, but the cell is edition {}; download it again",
+                                self.edition
+                            ));
+                        } else if update <= self.update {
+                            // Already in a reissued base cell.
+                            self.skip = true;
+                            return Ok(());
+                        } else if update != self.update + 1 {
+                            return Err(format!(
+                                "update {} is missing before update {update}; download the cell again",
+                                self.update + 1
+                            ));
                         }
                         self.update = update;
                     }
@@ -872,6 +887,15 @@ mod tests {
         assert_eq!(latin, vec![(116, "Café".to_string())]);
         let ucs2 = attributes(b"\x2d\x01B\x00a\x00y\x00\x1f\x00\x1e\x00", 2);
         assert_eq!(ucs2, vec![(301, "Bay".to_string())]);
+        // Attribute 30 (CATHAF) starts with the field terminator's byte.
+        let harbour = attributes(b"\x1e\x005\x1f\x74\x00Emeryville Marina\x1f", 1);
+        assert_eq!(
+            harbour,
+            vec![
+                (30, "5".to_string()),
+                (116, "Emeryville Marina".to_string())
+            ]
+        );
         let mut attrs = vec![(116, "Old".to_string()), (75, "3".to_string())];
         merge(
             &mut attrs,

@@ -80,6 +80,7 @@ impl FieldDefn {
             return Ok(rows);
         }
         while !data.is_empty() && data[0] != FIELD_END {
+            let before = data.len();
             let mut row = Vec::with_capacity(self.formats.len());
             for format in &self.formats {
                 let (value, used) = value(*format, data)?;
@@ -87,6 +88,9 @@ impl FieldDefn {
                 data = &data[used..];
             }
             rows.push(row);
+            if data.len() == before {
+                return Err("a repeating field that doesn't advance".into());
+            }
             if !self.repeating {
                 break;
             }
@@ -355,6 +359,7 @@ fn single(s: &str) -> Result<Format> {
     };
     let bad = || format!("unsupported subfield format {s}");
     match kind {
+        _ if width == Some(0) => Err(bad()),
         "A" | "I" | "R" => Ok(Format::Text(width)),
         "B" => Ok(Format::Bits(width.ok_or_else(bad)?.div_ceil(8))),
         _ => {
@@ -399,6 +404,8 @@ mod tests {
             vec![Signed(4), Unsigned(2), Signed(4), Unsigned(2)]
         );
         assert!(parse_formats("(b35)").is_err());
+        assert!(parse_formats("(A(0))").is_err());
+        assert!(parse_formats("(B(0))").is_err());
     }
 
     #[test]

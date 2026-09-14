@@ -58,11 +58,14 @@ replace their copy.
 of the request first.
 
 ```json
-{"type":"tile","v":1,"z":15,"x":5249,"y":12655,"scale":2,"path":"15/5249/12655@2.png"}
+{"type":"tile","v":1,"z":15,"x":5249,"y":12655,"scale":2,"generation":"3f9a1c2e5d7b8a90",
+ "path":"15/5249/12655@2.png"}
 ```
 
 - `path` is relative to `tiles.root` and has the form
   `<z>/<x>/<y>@<scale>.png`. The file is complete before the message is sent.
+- `generation` is the look the tile was drawn in. A client ignores a tile
+  whose `generation` isn't the one in its latest `state`.
 - A tile that couldn't be drawn has `error` instead of `path`.
 - Tiles for a request that was replaced are not sent, except those already
   on their way.

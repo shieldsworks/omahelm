@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 // Object classes.
+pub const MAGVAR: u16 = 81;
 pub const ACHARE: u16 = 4;
 pub const ACHBRT: u16 = 3;
 pub const ADMARE: u16 = 1;
@@ -115,6 +116,9 @@ pub const M_COVR: u16 = 302;
 pub const M_QUAL: u16 = 308;
 
 // Attributes.
+pub const RYRMGV: u16 = 130;
+pub const VALACM: u16 = 173;
+pub const VALMAG: u16 = 176;
 pub const BCNSHP: u16 = 2;
 pub const BOYSHP: u16 = 4;
 pub const BURDEP: u16 = 5;

@@ -220,7 +220,8 @@ fn dump(path: &Path, only: Option<&str>) -> Result<(), String> {
         "{} edition {} update {} issued {} scale 1:{}",
         cell.name, cell.edition, cell.update, cell.issued, cell.scale
     );
-    let mut classes: BTreeMap<&str, (usize, usize)> = BTreeMap::new();
+    let attrs_too = only == Some("--attrs");
+    let mut classes: BTreeMap<&str, (usize, usize, usize)> = BTreeMap::new();
     for f in &cell.features {
         let acronym = s57::acronym(f.class);
         let vertices = match &f.geometry {
@@ -233,6 +234,7 @@ fn dump(path: &Path, only: Option<&str>) -> Result<(), String> {
         let entry = classes.entry(acronym).or_default();
         entry.0 += 1;
         entry.1 += vertices;
+        entry.2 += f.attrs.iter().filter(|(_, v)| !v.is_empty()).count();
         if only == Some(acronym) {
             let attrs: Vec<String> = f
                 .attrs
@@ -249,8 +251,12 @@ fn dump(path: &Path, only: Option<&str>) -> Result<(), String> {
             println!("  {} {} {}", f.id.fidn, at, attrs.join(" "));
         }
     }
-    for (acronym, (count, vertices)) in classes {
-        println!("{acronym} {count} {vertices}");
+    for (acronym, (count, vertices, attrs)) in classes {
+        if attrs_too {
+            println!("{acronym} {count} {vertices} {attrs}");
+        } else {
+            println!("{acronym} {count} {vertices}");
+        }
     }
     Ok(())
 }
