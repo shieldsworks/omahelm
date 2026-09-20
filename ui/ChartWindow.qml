@@ -148,7 +148,10 @@ Item {
     // it, and remembered. [ ], space and the WIND label work without it.
     property bool timeBar: false
     function toggleTimeBar() {
-        if (!windOn) {
+        // With neither layer on there are no hours to show, so t turns the
+        // wind on, as it always did. With either one on it is just a
+        // toggle, and the bar scrubs whichever are on.
+        if (!windOn && !streamOn) {
             toggleWind();
             timeBar = true;
         } else timeBar = !timeBar;
@@ -187,8 +190,20 @@ Item {
         void app.minute;
         return windAt > 0 ? Math.round((windAt - hourNow()) / 3600e3) : 0;
     }
-    // Hours from the one under way to the forecast's last: the scrubber's
-    // length. None without a forecast that covers now.
+    // A tide can be predicted for ever, so the bar has to stop somewhere.
+    // A day shows two full cycles of the stream, which is what it takes to
+    // pick the slack you want.
+    readonly property int tideSpan: 24
+    // How many hours the time bar covers: as far as the layers that are on
+    // can speak for. Past the forecast's end the barbs go, and the arrows
+    // keep going, which is honest — the tide is still known there.
+    readonly property int scrubSpan: Math.max(windOn ? windSpan : 0, streamOn ? tideSpan : 0)
+    // The hour the layers are showing. One clock for both of them: a drag
+    // moves the wind at the Gate and the stream under it together.
+    readonly property int scrubHours: windHours
+
+    // Hours from the one under way to the forecast's last: how far the
+    // wind alone can be scrubbed. None without a forecast that covers now.
     readonly property int windSpan: {
         void app.minute;
         var f = wind.forecast, last = windLast();
@@ -209,17 +224,29 @@ Item {
     // boat then, as the bar puts it.
     readonly property string scrubText: {
         void app.minute;
+        var when = windAt > 0 ? Qt.formatDateTime(new Date(windAt), "ddd HH:mm") : "Now";
+        // With only the stream on, the bar is the tide's, so it reads the
+        // stream. With the wind on it stays the wind's, as it was.
+        if (streamOn && !windOn) {
+            var kn = streamKnots(windAt > 0 ? windAt : hourNow());
+            var words = streamWords(kn);
+            return words ? when + "   " + words : when;
+        }
         // Now is the wind at the boat this minute, as the barbs are; an
         // hour ahead is that hour's forecast.
         var here = wind.state ? wind.state.here : null;
         var h = windAt > 0 ? windOutlook.find(o => Date.parse(o.time) === windAt)
             : here && typeof here.speedKn === "number" && isFinite(here.speedKn)
               && typeof here.dirDeg === "number" && isFinite(here.dirDeg) ? here : null;
-        var when = windAt > 0 ? Qt.formatDateTime(new Date(windAt), "ddd HH:mm") : "Now";
         return h ? when + "   " + windWords(h) : when;
     }
-    readonly property string scrubWhere: wind.state && wind.state.here && wind.state.here.at === "home"
-        ? "forecast at home" : "forecast at the boat"
+    readonly property string scrubWhere: {
+        if (streamOn && !windOn)
+            return streamCurve && typeof streamCurve.name === "string"
+                ? "stream at " + streamCurve.name : "the stream mid-chart";
+        return wind.state && wind.state.here && wind.state.here.at === "home"
+            ? "forecast at home" : "forecast at the boat";
+    }
 
     // Barbs for another hour or run mustn't stay up under a new label: an
     // answer still on its way is ignored, and the barbs go until the next.
@@ -238,17 +265,19 @@ Item {
         } else windSettle.restart();
         askPoint(true);
     }
-    // An hour the clock has reached is now; one past the forecast's end is
-    // its last.
+    // An hour the clock has reached is now; one past the bar's end is its
+    // last.
     function clampWind(at) {
-        var now = hourNow(), last = windLast();
-        if (at > 0 && last && at > last) at = last;
+        var now = hourNow(), last = now + scrubSpan * 3600e3;
+        if (at > 0 && at > last) at = last;
         return at > now ? at : 0;
     }
     function stepWind(d) {
         windPlaying = false;
         windPlayPending = false;
-        if (!windOn) windOn = true;
+        // With a layer already on, the hour is that layer's; with none on,
+        // the wind is what stepping through hours used to mean.
+        if (!windOn && !streamOn) windOn = true;
         var next = clampWind((windAt > 0 ? windAt : hourNow()) + d * 3600e3);
         if (next !== windAt) {
             windAt = next;
@@ -261,12 +290,12 @@ Item {
     // An hour picked by hand: it cancels a play still waiting to start.
     function scrubTo(i) {
         windPlayPending = false;
-        i = Math.max(0, Math.min(windSpan, Math.round(i)));
+        i = Math.max(0, Math.min(scrubSpan, Math.round(i)));
         scrubAt(i === 0 ? 0 : hourNow() + i * 3600e3);
     }
     // The same, by the hour's time, 0 being now.
     function scrubAt(at) {
-        if (!windOn) windOn = true;
+        if (!windOn && !streamOn) windOn = true;
         var next = clampWind(at);
         if (next === windAt) return;
         windAt = next;
@@ -276,8 +305,9 @@ Item {
     // The hour after the one on show, by its time, so play can't skip one
     // as the clock turns over; 0 past the forecast's end.
     function nextHour() {
-        var at = (windAt > 0 ? windAt : hourNow()) + 3600e3, last = windLast();
-        return last && at <= last ? at : 0;
+        var at = (windAt > 0 ? windAt : hourNow()) + 3600e3;
+        var last = hourNow() + scrubSpan * 3600e3;
+        return scrubSpan > 0 && at <= last ? at : 0;
     }
     // Space: the hours one after another, from now if at the end.
     function togglePlay() {
@@ -287,7 +317,8 @@ Item {
         }
         // The layer just turned on, or omawind hasn't answered yet: play
         // once the forecast is in, or say then that there's nothing to.
-        if (!windOn || !wind.state) {
+        // The stream can play at once; the wind has to wait for omawind.
+        if (!streamOn && (!windOn || !wind.state)) {
             windOn = true;
             windPlayPending = true;
             return;
@@ -296,7 +327,7 @@ Item {
             windPlaying = false;
             return;
         }
-        if (windSpan === 0) {
+        if (scrubSpan === 0) {
             toast("No forecast hours ahead to play");
             return;
         }
@@ -307,7 +338,7 @@ Item {
     Timer {
         interval: 900
         repeat: true
-        running: app.windPlaying && app.windOn
+        running: app.windPlaying && (app.windOn || app.streamOn)
         onTriggered: {
             var at = app.nextHour();
             if (!at) {
@@ -366,6 +397,13 @@ Item {
         if (at !== windAt) {
             windAt = at;
             forgetWind();
+        }
+        // The bar can run past the forecast when the stream is on. There
+        // are no barbs out there; omawind would only answer with an error.
+        var last = windLast();
+        if (windAt > 0 && (!last || windAt > last)) {
+            forgetWind();
+            return;
         }
         var area = windArea();
         if (!area) return;
@@ -499,14 +537,15 @@ Item {
     function toggleStream() {
         streamOn = !streamOn;
         streamError = "";
-        if (!streamOn) streamArrows = [];
-        else streamSettle.restart();
+        if (!streamOn) {
+            streamArrows = [];
+            streamCurve = null;
+        } else streamSettle.restart();
     }
 
-    // The arrows follow the same hour the wind scrubber is showing, so
-    // one drag moves both layers. With the wind layer off there is no
-    // scrubber, and the stream is now.
-    readonly property real streamAt: windOn && windAt > 0 ? windAt : 0
+    // The arrows follow the hour the time bar is showing, so one drag
+    // moves the wind and the stream together. 0 is now.
+    readonly property real streamAt: windAt
 
     // The chart's corners, with a margin so an arrow just off the edge is
     // there when a pan brings it in.
@@ -535,7 +574,14 @@ Item {
     }
     property int streamId: 0
 
-    Timer { id: streamSettle; interval: 150; onTriggered: app.requestStream() }
+    Timer {
+        id: streamSettle
+        interval: 150
+        onTriggered: {
+            app.requestStream();
+            app.requestStreamCurve();
+        }
+    }
     onStreamAtChanged: if (streamOn) streamSettle.restart()
 
     Connections {
@@ -554,7 +600,10 @@ Item {
         }
         function onConnectedChanged() {
             if (app.stream.connected) streamSettle.restart();
-            else app.streamArrows = [];
+            else {
+                app.streamArrows = [];
+                app.streamCurve = null;
+            }
         }
     }
 
@@ -576,6 +625,46 @@ Item {
         onTriggered: app.requestStream()
     }
 
+    // The stream through the hours at the middle of the chart, for the
+    // time bar's graph and its readout. omatide resolves the position to
+    // its nearest station, so the bar speaks for where you are looking,
+    // not for where the boat happens to be.
+    property var streamCurve: null
+    property int streamCurveId: 0
+
+    function requestStreamCurve() {
+        if (!streamOn || !stream.connected || scrubSpan <= 0) return;
+        stream.send({type: "curve", id: "curve" + (++streamCurveId), kind: "current",
+                     lat: map.centerLat, lon: map.centerLon,
+                     time: new Date(hourNow()).toISOString().replace(/\.\d+Z$/, "Z"),
+                     hours: scrubSpan, stepSeconds: 1800});
+    }
+    onScrubSpanChanged: if (streamOn) streamSettle.restart()
+
+    Connections {
+        target: app.stream
+        function onCurve(m) {
+            if (m.id !== "curve" + app.streamCurveId) return;
+            app.streamCurve = m.values.length ? m : null;
+        }
+    }
+
+    // The stream on the curve at a moment, in knots, positive on the
+    // flood. NaN outside it. Not `streamAt`: that property is a time, and
+    // a property shadows a function of the same name.
+    function streamKnots(when) {
+        var c = streamCurve;
+        if (!c) return NaN;
+        var start = Date.parse(c.start), step = c.stepSeconds * 1000;
+        var i = Math.round((when - start) / step);
+        return i >= 0 && i < c.values.length ? c.values[i] : NaN;
+    }
+    function streamWords(kn) {
+        if (isNaN(kn)) return "";
+        if (Math.abs(kn) < 0.05) return "slack";
+        return Math.abs(kn).toFixed(1) + " kn " + (kn > 0 ? "flood" : "ebb");
+    }
+
     readonly property string streamText: {
         if (!streamOn) return "";
         if (stream.incompatible) return "STREAM  omatide speaks a newer protocol: update omahelm";
@@ -583,7 +672,7 @@ Item {
         if (stream.stations === 0) return "STREAM  no stations: run `omatide fetch`";
         if (streamError !== "") return "STREAM  " + streamError;
         var when = streamAt > 0
-            ? "+" + windHours + " h  " + Qt.formatDateTime(new Date(streamAt), "ddd HH:mm") : "now";
+            ? "+" + scrubHours + " h  " + Qt.formatDateTime(new Date(streamAt), "ddd HH:mm") : "now";
         if (!streamArrows.length) return "STREAM " + when + "   none in view";
         // Say when arrows were left out, so a thin chart isn't read as a
         // slack bay. Zooming in brings them back.
@@ -913,7 +1002,9 @@ Item {
                                    cardStation: app.cardStation ? app.cardStation.station.id : "",
                                    hoverStation: map.hoverStation ? map.hoverStation.id : "",
                                    stream: app.streamOn, streams: app.streamArrows.length,
-                                   streamsShown: map.shownStreams,
+                                   streamsShown: map.shownStreams, scrubSpan: app.scrubSpan,
+                                   streamCurve: app.streamCurve ? app.streamCurve.values.length : -1,
+                                   streamCurveAt: app.streamCurve ? app.streamCurve.name : "",
                                    streamEngine: app.stream.connected, streamText: app.streamText,
                                    hoverStream: map.hoverStream ? map.hoverStream.station : "",
                                    cursor: app.cursorText});
@@ -1075,7 +1166,7 @@ Item {
                     }
                 }
                 Rectangle {
-                    visible: app.windOn
+                    visible: app.windOn || app.streamOn
                     height: 24
                     width: timeLabel.implicitWidth + 16
                     color: app.timeBar ? app.theme.accent : Qt.alpha(app.theme.background, 0.85)
@@ -1098,7 +1189,8 @@ Item {
             Rectangle {
                 id: scrubber
                 // Too narrow a window for a bar of hours: none.
-                visible: app.timeBar && app.windOn && app.windSpan > 0 && app.notice === "" && map.width >= 240
+                visible: app.timeBar && (app.windOn || app.streamOn) && app.scrubSpan > 0
+                         && app.notice === "" && map.width >= 240
                 z: 30
                 anchors { left: parent.left; right: parent.right; bottom: statusBar.top; margins: 10 }
                 height: app.theme.baseSize * 2 + 36
@@ -1152,7 +1244,7 @@ Item {
                     anchors { left: playButton.right; leftMargin: 14
                               right: readout.visible ? readout.left : parent.right; rightMargin: readout.visible ? 18 : 12
                               top: parent.top; bottom: parent.bottom; topMargin: 6; bottomMargin: 4 }
-                    readonly property real step: app.windSpan > 0 ? width / app.windSpan : width
+                    readonly property real step: app.scrubSpan > 0 ? width / app.scrubSpan : width
 
                     // The forecast wind at the boat, speed shaded and gusts
                     // dashed, over an hour's tick each: a label every few,
@@ -1167,20 +1259,92 @@ Item {
                         onAccentChanged: requestPaint()
                         onWidthChanged: requestPaint()
                         onHeightChanged: requestPaint()
+                        property color flood: app.theme.accent
+                        property color ebb: app.theme.red
+                        onFloodChanged: requestPaint()
+                        onEbbChanged: requestPaint()
                         Connections {
                             target: app
                             function onWindOutlookChanged() { timeline.requestPaint(); }
-                            function onWindSpanChanged() { timeline.requestPaint(); }
+                            function onScrubSpanChanged() { timeline.requestPaint(); }
+                            function onStreamCurveChanged() { timeline.requestPaint(); }
                             function onMinuteChanged() { timeline.requestPaint(); }
+                        }
+
+                        // The stream over the same hours: flood above the
+                        // line it slacks on, ebb below, with a tick at each
+                        // slack.
+                        //
+                        // Shaded when it has the graph to itself. With the
+                        // wind on as well its shading would fight the
+                        // wind's, so it keeps only the line, the slack
+                        // water and the ticks — which is all you need to
+                        // find the slack you want.
+                        function paintStream(ctx, span, step, base, graph, shade) {
+                            var c = app.streamCurve;
+                            if (!c || !c.values.length) return;
+                            var start = Date.parse(c.start), inc = c.stepSeconds * 1000;
+                            var most = 0.2, n;
+                            for (n = 0; n < c.values.length; n++) most = Math.max(most, Math.abs(c.values[n]));
+                            var mid = graph / 2;
+                            function x(t) { return (t - base) / 3600e3 * step; }
+                            function y(kn) { return mid - kn / most * (mid - 2); }
+                            // The water it slacks on.
+                            ctx.globalAlpha = 0.35;
+                            ctx.strokeStyle = String(ink);
+                            ctx.lineWidth = 1;
+                            ctx.beginPath();
+                            ctx.moveTo(0, Math.round(mid) + 0.5);
+                            ctx.lineTo(span * step, Math.round(mid) + 0.5);
+                            ctx.stroke();
+                            // Flood and ebb, each shaded from that line.
+                            for (var side = 0; shade && side < 2; side++) {
+                                var up = side === 0;
+                                ctx.beginPath();
+                                ctx.moveTo(x(start), mid);
+                                for (n = 0; n < c.values.length; n++) {
+                                    var v = c.values[n];
+                                    ctx.lineTo(x(start + n * inc), y(up ? Math.max(0, v) : Math.min(0, v)));
+                                }
+                                ctx.lineTo(x(start + (c.values.length - 1) * inc), mid);
+                                ctx.closePath();
+                                ctx.globalAlpha = 0.22;
+                                ctx.fillStyle = up ? String(flood) : String(ebb);
+                                ctx.fill();
+                            }
+                            ctx.globalAlpha = 0.8;
+                            ctx.beginPath();
+                            for (n = 0; n < c.values.length; n++) {
+                                var px = x(start + n * inc), py = y(c.values[n]);
+                                if (n === 0) ctx.moveTo(px, py);
+                                else ctx.lineTo(px, py);
+                            }
+                            ctx.strokeStyle = String(ink);
+                            ctx.lineWidth = 1.5;
+                            ctx.stroke();
+                            // Slack is the hour you are looking for.
+                            ctx.globalAlpha = 0.9;
+                            ctx.lineWidth = 1;
+                            for (n = 0; n < c.turns.length; n++) {
+                                if (c.turns[n].turn !== "slack") continue;
+                                var tx = x(Date.parse(c.turns[n].time));
+                                if (tx < 0 || tx > span * step) continue;
+                                ctx.beginPath();
+                                ctx.moveTo(Math.round(tx) + 0.5, mid - 5);
+                                ctx.lineTo(Math.round(tx) + 0.5, mid + 5);
+                                ctx.stroke();
+                            }
+                            ctx.globalAlpha = 1;
                         }
                         onPaint: {
                             var ctx = getContext("2d");
                             ctx.reset();
-                            var span = app.windSpan, step = hoursBar.step, base = app.hourNow();
+                            var span = app.scrubSpan, step = hoursBar.step, base = app.hourNow();
                             if (span <= 0 || width <= 0) return;
                             var fontPx = Math.max(9, app.theme.baseSize - 2);
                             var graph = Math.max(10, height - fontPx - 12);
                             var tickY = graph + 2;
+                            if (app.streamOn) timeline.paintStream(ctx, span, step, base, graph, !app.windOn);
                             var hours = [], n, i;
                             for (n = 0; n < app.windOutlook.length; n++) {
                                 var o = app.windOutlook[n];
@@ -1191,7 +1355,7 @@ Item {
                             var most = 10;
                             for (n = 0; n < hours.length; n++) most = Math.max(most, hours[n].kn, hours[n].gust || 0);
                             function y(kn) { return graph - kn / most * (graph - 2); }
-                            if (hours.length > 1) {
+                            if (app.windOn && hours.length > 1) {
                                 ctx.beginPath();
                                 ctx.moveTo(hours[0].x, graph);
                                 for (n = 0; n < hours.length; n++) ctx.lineTo(hours[n].x, y(hours[n].kn));
@@ -1489,9 +1653,9 @@ Item {
                             ["W", "clear the waypoint"],
                             ["b", "wind barbs from omawind: forecast, and measured on dots"],
                             ["s", "tidal stream from omatide: an arrow at each station"],
-                            ["[  ]", "the wind an hour earlier, later"],
-                            ["t", "the time bar: wind at the boat by the hour"],
-                            ["space", "play the wind hour by hour"],
+                            ["[  ]", "an hour earlier, later"],
+                            ["t", "the time bar: the wind and the stream by the hour"],
+                            ["space", "play the hours one after another"],
                             ["n", "Night Watch: red on black"],
                             ["Esc", "close the card"],
                             ["?", "these keys"],

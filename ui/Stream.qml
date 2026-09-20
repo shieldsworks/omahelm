@@ -25,6 +25,7 @@ QtObject {
         && typeof state.stations.current === "number" ? state.stations.current : -1
 
     signal streams(var message)
+    signal curve(var message)
     signal rejected(var message)
 
     function num(v, lo, hi) { return typeof v === "number" && isFinite(v) && v >= lo && v <= hi; }
@@ -49,6 +50,8 @@ QtObject {
             if (m.here !== null && typeof m.here === "object") stream.state = m;
         } else if (m.type === "streams") {
             if (Array.isArray(m.streams)) stream.streams(stream.drawable(m));
+        } else if (m.type === "curve") {
+            if (Array.isArray(m.values)) stream.curve(stream.plottable(m));
         } else if (m.type === "error") {
             stream.rejected(m);
         }
@@ -67,6 +70,23 @@ QtObject {
             && (s.setDeg === undefined || num(s.setDeg, 0, 360))
             && (s.depthM === undefined || num(s.depthM, 0, 2000)));
         return Object.assign({}, m, {streams: kept});
+    }
+
+    // A curve as the time bar can plot it: a start it can read, a step
+    // that moves, and nothing but finite knots in it. A stream's values
+    // are signed — positive on the flood.
+    function plottable(m) {
+        var start = typeof m.start === "string" ? Date.parse(m.start) : NaN;
+        var step = num(m.stepSeconds, 1, 86400) ? m.stepSeconds : 0;
+        if (isNaN(start) || !step) return Object.assign({}, m, {values: [], turns: []});
+        var values = m.values.filter(v => num(v, -30, 30));
+        // One bad number would put every later one at the wrong time, so
+        // a curve with any is dropped rather than drawn askew.
+        if (values.length !== m.values.length) values = [];
+        var turns = Array.isArray(m.turns) ? m.turns.filter(t => t !== null && typeof t === "object"
+            && typeof t.turn === "string" && typeof t.time === "string"
+            && !isNaN(Date.parse(t.time))) : [];
+        return Object.assign({}, m, {values: values, turns: turns});
     }
 
     function send(message) {
