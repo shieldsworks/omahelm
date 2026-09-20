@@ -565,6 +565,150 @@ Item {
         onHeightChanged: requestPaint()
     }
 
+    // --------------------------------------------------------------- stream
+
+    // omatide's latest `streams`: the tidal stream at each of NOAA's
+    // current stations in view. An arrow points the way it sets and is as
+    // long as it is strong; slack is a ring, because there is no way to
+    // it. Flood and ebb are colored apart, since reading one for the
+    // other is the mistake that costs you the tide.
+    property var streams: []
+    onStreamsChanged: arrows.requestPaint()
+    // How many of them the last repaint had room for.
+    property int shownStreams: 0
+    // The longest arrow on show. A slack bay would otherwise draw twenty
+    // arrows too short to see.
+    readonly property real fastestStream: {
+        var most = 0.5;
+        for (var i = 0; i < streams.length; i++) most = Math.max(most, streams[i].knots);
+        return most;
+    }
+    // The stream under the pointer, or null. Every station answers, not
+    // only the ones an arrow was drawn for, so a crowded cluster can
+    // still be read one station at a time.
+    readonly property var hoverStream: {
+        if (!hovering || !streams.length) return null;
+        var best = null, bestD = 16 * 16;
+        for (var i = 0; i < streams.length; i++) {
+            var s = streams[i];
+            var at = px(s.lat, s.lon);
+            var d = (at.x - hover.x) * (at.x - hover.x) + (at.y - hover.y) * (at.y - hover.y);
+            if (d < bestD) { best = s; bestD = d; }
+        }
+        return best;
+    }
+
+    function arrow(ctx, x, y, knots, setDeg, longest) {
+        // Whatever the socket said, an arrow is a bounded amount of work.
+        if (!isFinite(knots) || !isFinite(setDeg)) return;
+        var length = 9 + 27 * Math.sqrt(Math.max(0, Math.min(1, knots / longest)));
+        var r = setDeg * Math.PI / 180;
+        var dx = Math.sin(r), dy = -Math.cos(r);      // the way it sets
+        ctx.beginPath();
+        ctx.moveTo(x - dx * 3, y - dy * 3);
+        ctx.lineTo(x + dx * length, y + dy * length);
+        ctx.stroke();
+        var tx = x + dx * length, ty = y + dy * length;
+        var wing = 5;
+        ctx.beginPath();
+        ctx.moveTo(tx, ty);
+        ctx.lineTo(tx - dx * wing * 1.8 + dy * wing, ty - dy * wing * 1.8 - dx * wing);
+        ctx.lineTo(tx - dx * wing * 1.8 - dy * wing, ty - dy * wing * 1.8 + dx * wing);
+        ctx.closePath();
+        ctx.fill();
+    }
+
+    Canvas {
+        id: arrows
+        anchors.fill: parent
+        // Under the wind barbs: a barb is read against a compass, an
+        // arrow only against the chart.
+        z: 4
+        visible: map.streams.length > 0
+        // Painted colors don't follow the theme on their own.
+        property color halo: map.theme.background
+        property color flood: map.theme.accent
+        property color ebb: map.theme.red
+        property color ink: map.theme.foreground
+        onHaloChanged: requestPaint()
+        onFloodChanged: requestPaint()
+        onEbbChanged: requestPaint()
+        onInkChanged: requestPaint()
+        // How close two arrows may come on screen before one of them is
+        // dropped. NOAA surveyed the bay in clusters — a dozen stations
+        // inside a mile off Angel Island — so at anything but close range
+        // every one of them drawn is a thicket. The strongest stream in a
+        // cluster wins the room, which is the one worth seeing.
+        readonly property real apart: 40
+
+        onPaint: {
+            var ctx = getContext("2d");
+            ctx.reset();
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.font = "bold " + (map.theme.baseSize - 2) + "px '" + map.theme.font + "'";
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+
+            // Which arrows there is room for, worked out once: the two
+            // painting passes must agree on it.
+            var order = map.streams.slice().sort((a, b) => b.knots - a.knots);
+            var shown = [];
+            for (var n = 0; n < order.length; n++) {
+                var a = order[n];
+                var p = map.px(a.lat, a.lon);
+                if (p.x < -40 || p.y < -40 || p.x > width + 40 || p.y > height + 40) continue;
+                var room = true;
+                for (var m = 0; m < shown.length; m++) {
+                    var q = shown[m].at;
+                    if (Math.abs(q.x - p.x) < apart && Math.abs(q.y - p.y) < apart) {
+                        room = false;
+                        break;
+                    }
+                }
+                if (room) shown.push({s: a, at: p});
+            }
+            map.shownStreams = shown.length;
+            var longest = map.fastestStream;
+            // A halo in the background color first, so an arrow reads over
+            // any chart color, then the arrow itself.
+            var passes = [[4.5, true], [1.8, false]];
+            for (var k = 0; k < passes.length; k++) {
+                ctx.lineWidth = passes[k][0];
+                for (var i = 0; i < shown.length; i++) {
+                    var s = shown[i].s, at = shown[i].at;
+                    var slack = s.way === "slack" || s.knots < 0.05 || typeof s.setDeg !== "number";
+                    var color = passes[k][1] ? String(halo)
+                        : slack ? String(ink) : (s.way === "flood" ? String(flood) : String(ebb));
+                    ctx.strokeStyle = color;
+                    ctx.fillStyle = color;
+                    if (slack) {
+                        ctx.beginPath();
+                        ctx.arc(at.x, at.y, 4, 0, 2 * Math.PI);
+                        ctx.stroke();
+                    } else {
+                        map.arrow(ctx, at.x, at.y, s.knots, s.setDeg, longest);
+                    }
+                    // The speed sits on the side the stream comes from, so
+                    // it never lies under its own arrow.
+                    var back = slack ? 0 : s.setDeg * Math.PI / 180;
+                    var lx = at.x - Math.sin(back) * 14, ly = at.y + Math.cos(back) * 14;
+                    var label = slack ? "slack" : s.knots.toFixed(1);
+                    if (passes[k][1]) ctx.strokeText(label, lx, ly);
+                    else ctx.fillText(label, lx, ly);
+                }
+            }
+        }
+        Connections {
+            target: map
+            function onCxChanged() { if (map.streams.length) arrows.requestPaint(); }
+            function onCyChanged() { if (map.streams.length) arrows.requestPaint(); }
+            function onZoomChanged() { if (map.streams.length) arrows.requestPaint(); }
+        }
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+    }
+
     // ---------------------------------------------------------------- input
 
     MouseArea {
