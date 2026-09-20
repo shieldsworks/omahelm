@@ -890,14 +890,33 @@ Item {
                 }
             }
 
-            // The wind layer: which hour, from which run, and the chip that
-            // opens the time bar.
+            // The app's name, then the wind layer: which hour, from which
+            // run, and the chip that opens the time bar.
             Row {
-                visible: app.windOn
                 z: 30
                 anchors { top: parent.top; left: parent.left; margins: 10 }
                 spacing: 6
+                // The name is known at a glance, as in omalookout and
+                // omawind. It sits on a chip, not bare like theirs: the
+                // chart runs under it, and plain text would be lost over
+                // pale shoal water.
                 Rectangle {
+                    height: 24
+                    width: nameLabel.implicitWidth + 16
+                    color: Qt.alpha(app.theme.background, 0.85)
+                    border.width: 1
+                    border.color: Qt.alpha(app.theme.foreground, 0.25)
+                    Label {
+                        id: nameLabel
+                        anchors.centerIn: parent
+                        text: "OMAHELM"
+                        color: app.theme.accent
+                        font.bold: true
+                        font.pixelSize: app.theme.baseSize - 1
+                    }
+                }
+                Rectangle {
+                    visible: app.windOn
                     height: 24
                     width: windLabel.implicitWidth + 16
                     color: Qt.alpha(app.theme.background, 0.85)
@@ -911,6 +930,7 @@ Item {
                     }
                 }
                 Rectangle {
+                    visible: app.windOn
                     height: 24
                     width: timeLabel.implicitWidth + 16
                     color: app.timeBar ? app.theme.accent : Qt.alpha(app.theme.background, 0.85)
