@@ -35,6 +35,7 @@ Item {
     property Helm helm: Helm {}
     property Keel keel: Keel {}
     property Wind wind: Wind { wanted: app.windOn }
+    property Stream stream: Stream { wanted: app.streamOn }
 
     // Quickshell keeps a process alive after its last window closes.
     Connections {
@@ -482,6 +483,126 @@ Item {
         return "at " + Qt.formatDateTime(new Date(t), "HH:mm") + ", " + ago + " min ago";
     }
     // A station under the pointer: its name, its wind, and when.
+    // -------------------------------------------------------- the stream
+
+    // omatide's tidal stream at NOAA's current stations in view: s.
+    //
+    // Simpler than the wind, and for a reason. omawind predicts a grid,
+    // so omahelm caches fields per hour and fetches the next one ahead
+    // while playing. A tide is arithmetic: omatide answers in a
+    // millisecond for any moment, however far off, so there is nothing
+    // worth caching and nothing to fetch ahead.
+    property bool streamOn: false
+    property var streamArrows: []
+    property string streamError: ""
+
+    function toggleStream() {
+        streamOn = !streamOn;
+        streamError = "";
+        if (!streamOn) streamArrows = [];
+        else streamSettle.restart();
+    }
+
+    // The arrows follow the same hour the wind scrubber is showing, so
+    // one drag moves both layers. With the wind layer off there is no
+    // scrubber, and the stream is now.
+    readonly property real streamAt: windOn && windAt > 0 ? windAt : 0
+
+    // The chart's corners, with a margin so an arrow just off the edge is
+    // there when a pan brings it in.
+    function streamArea() {
+        var pad = 0.25;
+        var sw = {lat: Geo.lat(map.cy + (map.height / 2) / map.world),
+                  lon: Geo.lon(map.cx - (map.width / 2) / map.world)};
+        var ne = {lat: Geo.lat(map.cy - (map.height / 2) / map.world),
+                  lon: Geo.lon(map.cx + (map.width / 2) / map.world)};
+        var dLat = (ne.lat - sw.lat) * pad, dLon = (ne.lon - sw.lon) * pad;
+        return {south: Math.max(-85, sw.lat - dLat), north: Math.min(85, ne.lat + dLat),
+                west: Math.max(-180, sw.lon - dLon), east: Math.min(180, ne.lon + dLon)};
+    }
+
+    function requestStream() {
+        if (!streamOn || !stream.connected) return;
+        var area = streamArea();
+        // A view wrapped round the date line would ask for the whole
+        // world; omatide would answer, but nothing here can draw it.
+        if (area.east <= area.west) return;
+        var request = {type: "streams", id: ++streamId,
+                       south: area.south, west: area.west,
+                       north: area.north, east: area.east};
+        if (streamAt > 0) request.time = new Date(streamAt).toISOString().replace(/\.\d+Z$/, "Z");
+        stream.send(request);
+    }
+    property int streamId: 0
+
+    Timer { id: streamSettle; interval: 150; onTriggered: app.requestStream() }
+    onStreamAtChanged: if (streamOn) streamSettle.restart()
+
+    Connections {
+        target: app.stream
+        function onStreams(m) {
+            // Only the newest request's answer; an older one arriving late
+            // would put the chart back an hour.
+            if (m.id !== app.streamId) return;
+            app.streamArrows = m.streams;
+            app.streamError = "";
+        }
+        function onRejected(m) {
+            if (m.id !== app.streamId) return;
+            app.streamArrows = [];
+            app.streamError = typeof m.message === "string" ? m.message : "omatide refused the request";
+        }
+        function onConnectedChanged() {
+            if (app.stream.connected) streamSettle.restart();
+            else app.streamArrows = [];
+        }
+    }
+
+    Connections {
+        target: map
+        function onCxChanged() { if (app.streamOn) streamSettle.restart(); }
+        function onCyChanged() { if (app.streamOn) streamSettle.restart(); }
+        function onZoomChanged() { if (app.streamOn) streamSettle.restart(); }
+        function onWidthChanged() { if (app.streamOn) streamSettle.restart(); }
+        function onHeightChanged() { if (app.streamOn) streamSettle.restart(); }
+    }
+
+    // The stream is predicted, not observed, so it goes stale by the
+    // minute like the wind does: re-ask every ten while it's on and live.
+    Timer {
+        interval: 600000
+        repeat: true
+        running: app.streamOn && app.streamAt === 0
+        onTriggered: app.requestStream()
+    }
+
+    readonly property string streamText: {
+        if (!streamOn) return "";
+        if (stream.incompatible) return "STREAM  omatide speaks a newer protocol: update omahelm";
+        if (!stream.connected) return "STREAM  omatide isn't running";
+        if (stream.stations === 0) return "STREAM  no stations: run `omatide fetch`";
+        if (streamError !== "") return "STREAM  " + streamError;
+        var when = streamAt > 0
+            ? "+" + windHours + " h  " + Qt.formatDateTime(new Date(streamAt), "ddd HH:mm") : "now";
+        if (!streamArrows.length) return "STREAM " + when + "   none in view";
+        // Say when arrows were left out, so a thin chart isn't read as a
+        // slack bay. Zooming in brings them back.
+        var shown = map.shownStreams;
+        var room = shown > 0 && shown < streamArrows.length
+            ? "   " + shown + " of " + streamArrows.length + " stations"
+            : "   " + streamArrows.length + " stations";
+        return "STREAM " + when + room;
+    }
+
+    // One station's stream, for the cursor readout.
+    function streamTextFor(s) {
+        var name = s.name || s.station;
+        if (s.way === "slack" || s.knots < 0.05) return name + "  slack";
+        var set = typeof s.setDeg === "number" ? Geo.degrees(s.setDeg) + "T " : "";
+        var depth = typeof s.depthM === "number" ? "  at " + s.depthM.toFixed(1) + " m" : "";
+        return name + "  " + set + s.knots.toFixed(1) + " kn " + s.way + depth;
+    }
+
     function stationText(s) {
         void app.minute;
         var age = reportAge(s);
@@ -593,6 +714,7 @@ Item {
             if (s.waypoint && typeof s.waypoint.lat === "number" && typeof s.waypoint.lon === "number")
                 waypoint = {lat: s.waypoint.lat, lon: s.waypoint.lon};
             if (s.wind === true) windOn = true;
+            if (s.stream === true) streamOn = true;
             if (s.timeBar === true) timeBar = true;
         } else if (helm.state && helm.state.charts && helm.state.charts.extent) {
             var e = helm.state.charts.extent;
@@ -619,6 +741,7 @@ Item {
         var view = {lat: map.centerLat, lon: map.centerLon, zoom: Math.round(map.zoom * 100) / 100};
         if (waypoint) view.waypoint = waypoint;
         if (windOn) view.wind = true;
+        if (streamOn) view.stream = true;
         if (timeBar) view.timeBar = true;
         var text = JSON.stringify(view);
         var slash = viewPath.lastIndexOf("/");
@@ -681,6 +804,7 @@ Item {
     readonly property string cursorText: {
         if (!map.hovering) return "";
         if (map.hoverStation) return stationText(map.hoverStation);
+        if (map.hoverStream) return streamTextFor(map.hoverStream);
         var out = "+ " + Geo.position(map.hoverLat, map.hoverLon);
         if (hasPosition)
             out += "  " + Geo.degrees(Geo.bearing(fix.lat, fix.lon, map.hoverLat, map.hoverLon)) + "T "
@@ -735,6 +859,7 @@ Item {
         else if (t === "W") { waypoint = null; }
         else if (t === "n") toggleNight();
         else if (t === "b") toggleWind();
+        else if (t === "s") toggleStream();
         else if (t === "t") toggleTimeBar();
         else if (t === "]") stepWind(1);
         else if (t === "[") stepWind(-1);
@@ -786,7 +911,12 @@ Item {
                                    stations: app.windStations.length,
                                    cardWind: app.windOn && app.cardOpen ? app.cardForecastText : "",
                                    cardStation: app.cardStation ? app.cardStation.station.id : "",
-                                   hoverStation: map.hoverStation ? map.hoverStation.id : ""});
+                                   hoverStation: map.hoverStation ? map.hoverStation.id : "",
+                                   stream: app.streamOn, streams: app.streamArrows.length,
+                                   streamsShown: map.shownStreams,
+                                   streamEngine: app.stream.connected, streamText: app.streamText,
+                                   hoverStream: map.hoverStream ? map.hoverStream.station : "",
+                                   cursor: app.cursorText});
         }
     }
 
@@ -834,6 +964,7 @@ Item {
                 waypoint: app.waypoint
                 wind: app.windField
                 stations: app.windStations
+                streams: app.streamArrows
                 onPointed: (lat, lon, x, y, action) => {
                     if (action === "waypoint") app.setWaypoint(lat, lon);
                     else app.query(lat, lon, x, y);
@@ -926,6 +1057,20 @@ Item {
                         id: windLabel
                         anchors.centerIn: parent
                         text: app.windText
+                        font.pixelSize: app.theme.baseSize - 1
+                    }
+                }
+                Rectangle {
+                    visible: app.streamOn
+                    height: 24
+                    width: streamLabel.implicitWidth + 16
+                    color: Qt.alpha(app.theme.background, 0.85)
+                    border.width: 1
+                    border.color: Qt.alpha(app.theme.foreground, 0.25)
+                    Label {
+                        id: streamLabel
+                        anchors.centerIn: parent
+                        text: app.streamText
                         font.pixelSize: app.theme.baseSize - 1
                     }
                 }
@@ -1343,6 +1488,7 @@ Item {
                             ["w  right-click", "waypoint at the cursor"],
                             ["W", "clear the waypoint"],
                             ["b", "wind barbs from omawind: forecast, and measured on dots"],
+                            ["s", "tidal stream from omatide: an arrow at each station"],
                             ["[  ]", "the wind an hour earlier, later"],
                             ["t", "the time bar: wind at the boat by the hour"],
                             ["space", "play the wind hour by hour"],
