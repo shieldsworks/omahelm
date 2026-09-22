@@ -4,6 +4,7 @@ use omahelm::render::{self, Style, TILE, TileKey};
 use omahelm::s57::{self, Cell, Geometry};
 use omahelm::style::{self, Palette, Settings};
 use omahelm::text::Font;
+use omahelm::trips;
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
@@ -15,6 +16,9 @@ const USAGE: &str = "usage:
   omahelm fetch --list                    list NOAA's regions
   omahelm import ZIP|DIR [--charts DIR]   install ENC cells you already have
   omahelm index [--charts DIR]            re-read the charts and list any skipped
+  omahelm trips [--logbook DIR]           the days your logbook has tracks for
+  omahelm trip [--date YYYY-MM-DD] [--logbook DIR] [--out FILE.gpx]
+                                          a day's passages as the one trip they were
   omahelm query --at LAT,LON [--zoom Z] [--charts DIR]
   omahelm render --center LAT,LON --zoom Z [--size WxH] [--scale N] [--night] [--charts DIR] --out FILE.png
   omahelm dump CELL.000 [CLASS]";
@@ -35,6 +39,8 @@ fn main() -> ExitCode {
         }
         Some("fetch") if args.len() >= 2 => fetch(&args[1..]),
         Some("import") if args.len() >= 2 => import(&args[1..]),
+        Some("trips") => trips(&args[1..]),
+        Some("trip") => trip(&args[1..]),
         Some("query") => query(&args[1..]),
         Some("render") => render_view(&args[1..]),
         _ => Err(USAGE.to_string()),
@@ -128,6 +134,97 @@ fn index(args: &[String]) -> Result<(), String> {
     for (cell, why) in &lib.problems {
         let cell = cell.split('|').next().unwrap_or(cell);
         println!("  skipped {cell}: {why}");
+    }
+    Ok(())
+}
+
+/// The logbook vault: `--logbook`, else the `logbook` setting, else the
+/// vault omalogbook is configured for.
+fn logbook(args: &[String]) -> PathBuf {
+    flag(args, "--logbook").map_or_else(
+        || trips::default_vault(current_style(false).settings.logbook.as_deref()),
+        trips::expand,
+    )
+}
+
+fn open_log(args: &[String]) -> Result<trips::Log, String> {
+    let log = trips::Log::open(logbook(args));
+    match log.status() {
+        "none" => Err(format!(
+            "no tracks at {}. Set `logbook` in config.toml, or pass --logbook.",
+            log.vault().display()
+        )),
+        "empty" => Err(format!("no GPX tracks in {}", log.vault().display())),
+        _ => Ok(log),
+    }
+}
+
+/// `omahelm trips`: what the logbook has, a day per line.
+fn trips(args: &[String]) -> Result<(), String> {
+    let log = open_log(args)?;
+    let mut total = 0.0;
+    for day in log.days() {
+        let (from, to) = day.span();
+        let nm = day.run_nm() + day.gap_nm();
+        total += nm;
+        let gaps = day.gaps().count();
+        println!(
+            "{}  {:>6} nm  {:>2} passage{}  {:>2} gap{} {:>7}  {}",
+            day.date,
+            trips::format_nm(nm),
+            day.passages,
+            if day.passages == 1 { " " } else { "s" },
+            gaps,
+            if gaps == 1 { " " } else { "s" },
+            if gaps > 0 {
+                format!("({} nm)", trips::format_nm(day.gap_nm()))
+            } else {
+                String::new()
+            },
+            if from > 0 {
+                format!("{}–{}", trips::local_clock(from), trips::local_clock(to))
+            } else {
+                String::new()
+            }
+        );
+    }
+    eprintln!(
+        "{} {}, {} nm, in {}",
+        log.days().len(),
+        if log.days().len() == 1 { "day" } else { "days" },
+        trips::format_nm(total),
+        log.vault().display()
+    );
+    Ok(())
+}
+
+/// `omahelm trip`: one day as a single GPX track, its holes closed with
+/// straight lines. The newest day unless `--date` says otherwise.
+fn trip(args: &[String]) -> Result<(), String> {
+    let log = open_log(args)?;
+    let day = match flag(args, "--date") {
+        Some(d) => log
+            .day(d)
+            .ok_or_else(|| format!("no tracks for {d} in {}", log.vault().display()))?,
+        None => log.days().last().expect("a day, since the log isn't empty"),
+    };
+    let gpx = day.gpx(&log.boat(&day.date));
+    let gaps = day.gaps().count();
+    eprintln!(
+        "{}: {} passages joined, {} gap{} filled with straight lines, {} of {} nm inferred",
+        day.date,
+        day.passages,
+        gaps,
+        if gaps == 1 { "" } else { "s" },
+        trips::format_nm(day.gap_nm()),
+        trips::format_nm(day.run_nm() + day.gap_nm())
+    );
+    match flag(args, "--out") {
+        Some(out) => {
+            std::fs::write(out, &gpx).map_err(|e| format!("{out}: {e}"))?;
+            eprintln!("Wrote {out}");
+        }
+        None => print!("{gpx}"),
     }
     Ok(())
 }

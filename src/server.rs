@@ -10,6 +10,7 @@ use crate::render::{self, Style, TILE, TileKey};
 use crate::s57::{self, names::*};
 use crate::style::{self, Palette, Settings};
 use crate::text::Font;
+use crate::trips::{self, Log};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 use std::io::{BufRead, BufReader, Read, Write};
@@ -93,6 +94,8 @@ impl View {
 struct Engine {
     view: RwLock<Arc<View>>,
     font: Option<Font>,
+    /// The logbook's tracks, re-read whenever they are asked for.
+    log: Mutex<Log>,
     clients: Mutex<Vec<Client>>,
     queue: Mutex<VecDeque<Job>>,
     ready: Condvar,
@@ -198,6 +201,28 @@ impl Engine {
             style: Arc::new(style),
             generation,
         }
+    }
+
+    /// The logbook, opened afresh when the setting points somewhere else
+    /// and re-read when its files have changed.
+    fn with_log<T>(&self, f: impl FnOnce(&mut Log) -> T) -> T {
+        let configured = self
+            .view
+            .read()
+            .expect("view lock")
+            .day
+            .style
+            .settings
+            .logbook
+            .clone();
+        let wanted = trips::default_vault(configured.as_deref());
+        let mut log = self.log.lock().expect("log lock");
+        if log.vault() == wanted {
+            log.refresh();
+        } else {
+            *log = Log::open(wanted);
+        }
+        f(&mut log)
     }
 
     fn state(&self) -> String {
@@ -394,6 +419,9 @@ pub fn serve(charts: PathBuf) -> Result<(), String> {
             indexing: Some((0, 0)),
         })),
         font,
+        log: Mutex::new(Log::open(trips::default_vault(
+            load_style().0.settings.logbook.as_deref(),
+        ))),
         clients: Mutex::new(Vec::new()),
         queue: Mutex::new(VecDeque::new()),
         ready: Condvar::new(),
@@ -633,9 +661,90 @@ fn handle(engine: &Arc<Engine>, id: u64, m: &Value) -> Option<String> {
             Ok(v) => v.to_string(),
             Err(e) => error_message(&format!("query: {e}")),
         }),
+        Some("trips") => Some(trips_index(engine).to_string()),
+        Some("trip") => trip(engine, id, m)
+            .err()
+            .map(|e| error_message(&format!("trip: {e}"))),
         Some(other) => Some(error_message(&format!("unknown type {other}"))),
         None => Some(error_message("missing type")),
     }
+}
+
+/// `trips`: every day the logbook has a track for, and what the day was.
+/// Enough for a calendar and a list; the geometry comes with `trip`.
+fn trips_index(engine: &Arc<Engine>) -> Value {
+    engine.with_log(|log| {
+        let days: Vec<Value> = log.days().iter().map(trips::Day::summary).collect();
+        let mut v = json!({"type": "trips", "v": VERSION, "status": log.status(),
+                           "root": log.vault().display().to_string(), "days": days});
+        if log.skipped > 0 {
+            v["skipped"] = json!(log.skipped);
+        }
+        v
+    })
+}
+
+/// `trip`: a day, or a range of them, drawn for a zoom level. One message
+/// per day, the last of them marked, as `tiles` answers tile by tile.
+fn trip(engine: &Arc<Engine>, client: u64, m: &Value) -> Result<(), String> {
+    let z = match m.get("z") {
+        None => 18,
+        Some(v) => v.as_u64().filter(|z| *z <= 22).ok_or("z must be 0 to 22")?,
+    };
+    let date = |key: &str| -> Result<Option<String>, String> {
+        match m.get(key) {
+            None | Some(Value::Null) => Ok(None),
+            Some(Value::String(s)) if trips::is_date(s) => Ok(Some(s.clone())),
+            Some(_) => Err(format!("{key} must be a date, YYYY-MM-DD")),
+        }
+    };
+    let (one, from, to) = (date("date")?, date("from")?, date("to")?);
+    let wanted = |d: &str| {
+        one.as_ref().is_none_or(|o| o == d)
+            && from.as_ref().is_none_or(|f| d >= f.as_str())
+            && to.as_ref().is_none_or(|t| d <= t.as_str())
+    };
+    let (mut messages, more) = engine.with_log(|log| {
+        let days: Vec<&trips::Day> = log.days().iter().filter(|d| wanted(&d.date)).collect();
+        // Capped at the most recent, so a lifetime of sailing still
+        // answers with the season you are looking at.
+        let more = days.len() > trips::MAX_DAYS;
+        let kept = if more {
+            &days[days.len() - trips::MAX_DAYS..]
+        } else {
+            &days[..]
+        };
+        (
+            kept.iter()
+                .map(|d| d.drawing(z as u32))
+                .collect::<Vec<Value>>(),
+            more,
+        )
+    });
+    let days = messages.len();
+    // Every stream ends with a message a client can recognize, so it knows
+    // when the whole range is in; a range with nothing in it is that
+    // message alone.
+    if messages.is_empty() {
+        messages.push(json!({}));
+    }
+    let count = messages.len();
+    for (i, mut v) in messages.into_iter().enumerate() {
+        v["type"] = json!("trip");
+        v["v"] = json!(VERSION);
+        if let Some(id) = m.get("id") {
+            v["id"] = id.clone();
+        }
+        if i + 1 == count {
+            v["last"] = json!(true);
+            v["days"] = json!(days);
+            if more {
+                v["more"] = json!(true);
+            }
+        }
+        engine.send(client, v.to_string());
+    }
+    Ok(())
 }
 
 fn tiles(engine: &Arc<Engine>, id: u64, m: &Value) -> Result<(), String> {

@@ -565,6 +565,142 @@ Item {
         onHeightChanged: requestPaint()
     }
 
+    // ------------------------------------------------------------ the log
+
+    // Every day omalogbook kept a track for, as the engine joined it: the
+    // passages of a day in the order they were sailed, with a straight
+    // line across each hole where the fix was lost.
+    //
+    // A run is where the boat was seen and is drawn solid. A gap is only
+    // the shortest thing it could have done — at the Gate on a flood,
+    // nowhere near the truth — so it is drawn dashed and never passes for
+    // track. A season of them is one picture of where the boat has been;
+    // the day picked out of the calendar is drawn over the rest.
+    property var trips: []
+    property string tripDay: ""
+    onTripsChanged: passages.requestPaint()
+    onTripDayChanged: passages.requestPaint()
+
+    Canvas {
+        id: passages
+        anchors.fill: parent
+        // Under the stream arrows and the barbs: where you have been is
+        // the ground the weather is read against, not the other way.
+        z: 3
+        visible: map.trips.length > 0
+        // Painted colors don't follow the theme on their own.
+        property color ink: map.theme.accent
+        property color halo: map.theme.background
+        onInkChanged: requestPaint()
+        onHaloChanged: requestPaint()
+
+        function sx(lon) { return (Geo.mercX(lon) - map.cx) * map.world + width / 2; }
+        function sy(lat) { return (Geo.mercY(lat) - map.cy) * map.world + height / 2; }
+
+        // One line of lat, lon pairs, added to the path already open.
+        function line(ctx, flat) {
+            for (var i = 0; i + 1 < flat.length; i += 2) {
+                var x = sx(flat[i + 1]), y = sy(flat[i]);
+                if (i === 0) ctx.moveTo(x, y);
+                else ctx.lineTo(x, y);
+            }
+        }
+        function lines(ctx, list) {
+            for (var i = 0; i < list.length; i++) line(ctx, list[i]);
+        }
+        // A day whose whole extent is off screen is never walked. A
+        // season at the Bay is a hundred days of the same few miles, so
+        // this saves little there and everything on a passage log.
+        function inView(day) {
+            var b = day.bbox;
+            if (!b) return true;
+            return sx(b.east) >= -20 && sx(b.west) <= width + 20
+                && sy(b.south) >= -20 && sy(b.north) <= height + 20;
+        }
+
+        onPaint: {
+            var ctx = getContext("2d");
+            ctx.reset();
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.strokeStyle = String(ink);
+            var i, picked = null, others = [];
+            for (i = 0; i < map.trips.length; i++) {
+                var d = map.trips[i];
+                if (d.date === map.tripDay) picked = d;
+                else if (inView(d)) others.push(d);
+            }
+            // Every other day in one path: a season is a few hundred
+            // lines, and one stroke of them all is far cheaper than each.
+            ctx.globalAlpha = 0.42;
+            ctx.lineWidth = 1.6;
+            ctx.beginPath();
+            for (i = 0; i < others.length; i++) lines(ctx, others[i].runs);
+            ctx.stroke();
+            ctx.globalAlpha = 0.2;
+            if (ctx.setLineDash) ctx.setLineDash([3, 4]);
+            ctx.beginPath();
+            for (i = 0; i < others.length; i++) lines(ctx, others[i].gaps);
+            ctx.stroke();
+            if (ctx.setLineDash) ctx.setLineDash([]);
+            if (!picked) {
+                ctx.globalAlpha = 1;
+                return;
+            }
+            // The day picked out, over the rest: a halo in the background
+            // color first, so it reads over any chart color.
+            var passes = [[String(halo), 5, 0.75], [String(ink), 2.2, 1]];
+            for (var k = 0; k < passes.length; k++) {
+                ctx.strokeStyle = passes[k][0];
+                ctx.globalAlpha = passes[k][2];
+                ctx.lineWidth = passes[k][1];
+                ctx.beginPath();
+                lines(ctx, picked.runs);
+                ctx.stroke();
+                if (ctx.setLineDash) ctx.setLineDash([5, 4]);
+                ctx.lineWidth = passes[k][1] * 0.8;
+                ctx.globalAlpha = passes[k][2] * 0.85;
+                ctx.beginPath();
+                lines(ctx, picked.gaps);
+                ctx.stroke();
+                if (ctx.setLineDash) ctx.setLineDash([]);
+            }
+            // Where the day began and where it ended: a hollow ring for
+            // the start, a filled dot for the finish.
+            var first = picked.runs.length ? picked.runs[0] : null;
+            var last = picked.runs.length ? picked.runs[picked.runs.length - 1] : null;
+            if (!first) {
+                ctx.globalAlpha = 1;
+                return;
+            }
+            ctx.globalAlpha = 1;
+            for (var m = 0; m < 2; m++) {
+                var mark = m === 0 ? [sx(first[1]), sy(first[0])]
+                    : [sx(last[last.length - 1]), sy(last[last.length - 2])];
+                ctx.strokeStyle = String(halo);
+                ctx.lineWidth = 3;
+                ctx.beginPath();
+                ctx.arc(mark[0], mark[1], 4.5, 0, 2 * Math.PI);
+                ctx.stroke();
+                ctx.strokeStyle = String(ink);
+                ctx.fillStyle = String(ink);
+                ctx.lineWidth = 1.8;
+                ctx.beginPath();
+                ctx.arc(mark[0], mark[1], 4.5, 0, 2 * Math.PI);
+                if (m === 0) ctx.stroke();
+                else ctx.fill();
+            }
+        }
+        Connections {
+            target: map
+            function onCxChanged() { if (map.trips.length) passages.requestPaint(); }
+            function onCyChanged() { if (map.trips.length) passages.requestPaint(); }
+            function onZoomChanged() { if (map.trips.length) passages.requestPaint(); }
+        }
+        onWidthChanged: requestPaint()
+        onHeightChanged: requestPaint()
+    }
+
     // --------------------------------------------------------------- stream
 
     // omatide's latest `streams`: the tidal stream at each of NOAA's
