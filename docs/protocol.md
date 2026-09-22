@@ -93,6 +93,63 @@ of the request first.
 - `chart` names the cell the feature came from.
 - An empty `features` list means nothing is charted there.
 
+`trips` answers a `trips`: every day the logbook has a track for, oldest
+first. The days themselves are drawn from `trip`.
+
+```json
+{"type":"trips","v":1,"status":"ok","root":"/home/casey/Logbook",
+ "days":[{"date":"2026-09-21","passages":4,"points":1516,
+          "distanceNm":20.2,"gapNm":2.45,"holes":3,"seconds":17260,
+          "from":"2026-09-21T18:43:30Z","to":"2026-09-21T23:31:10Z",
+          "bbox":{"west":-122.450883,"south":37.810592,
+                  "east":-122.313158,"north":37.880113}}]}
+```
+
+- `status` is `ok` with at least one day, `empty` for a logbook with no
+  usable track in it, and `none` when there is no logbook at `root`.
+- `root` is the folder the days were read from.
+- `date` is the local day the passages are filed under.
+- `distanceNm` is the whole trip as it is drawn, the straight lines across
+  the holes included. `gapNm` is how much of that was inferred and `holes`
+  how many there were. `points` counts the fixes actually recorded.
+- `from`, `to` and `seconds` are the day's first and last fix, in UTC. A
+  day whose track carries no times at all has none of the three.
+- `skipped` counts files that held no usable point. Absent when none did.
+
+`trip` answers a `trip` with one day's lines, thinned for the zoom level
+asked for. A range is answered a day at a time, as `tile` answers a
+rectangle a tile at a time.
+
+```json
+{"type":"trip","v":1,"id":7,"date":"2026-09-21","z":13,"drawn":249,
+ "runs":[[37.866705,-122.313328,37.86662,-122.313227]],
+ "gaps":[[37.869063,-122.450883,37.82839,-122.449358]],
+ "start":[37.866705,-122.313328],"end":[37.866817,-122.313303],
+ "distanceNm":20.2,"gapNm":2.45,"holes":3,"passages":4,
+ "bbox":{"west":-122.450883,"south":37.810592,
+         "east":-122.313158,"north":37.880113},
+ "last":true,"days":1}
+```
+
+- A **run** is track: a line of `lat, lon` pairs the receiver reported. A
+  **gap** is the straight line between two runs. It is inferred, not
+  sailed, and a client must draw it so that the two can't be confused.
+- The day's other keys are the ones `trips` sends for it. `holes` is the
+  count; `gaps` here are the lines across them.
+- `start` and `end` are the day's first and last recorded fix, as
+  `[lat, lon]`. They are named outright because a passage of a single fix
+  is no line and isn't sent, so the ends of `runs` are not always the
+  ends of the day. Absent from a day with nothing recorded.
+- `drawn` counts the points left after thinning. One answer carries at
+  most 120,000 points, shared between the days in it, so a season asked
+  for at close range is thinned harder rather than sent whole. A line is
+  never cut short: thinning drops points from the middle, never the ends.
+- The last message of an answer carries `"last": true` and `days`, how
+  many it sent. A request that matched nothing is that message alone,
+  with no `date`. `"more": true` says days were left out: at most 500
+  answer, the most recent of the range.
+- `id` is the request's, echoed as it was sent.
+
 `error` reports a bad request.
 
 ```json
@@ -122,6 +179,27 @@ within about 10 logical pixels, and the areas that contain the point.
 {"type":"query","id":7,"lat":37.8683,"lon":-122.3205,"zoom":15}
 ```
 
+`trips` asks which days the logbook has tracks for. It takes nothing else.
+
+```json
+{"type":"trips"}
+```
+
+`trip` asks for a day's lines, or a range of days.
+
+```json
+{"type":"trip","id":7,"from":"2026-05-01","to":"2026-09-22","z":13}
+```
+
+- `date` for one day, or `from` and `to` for a range; either end may be
+  left out, and with none of the three every day answers.
+- Dates are `YYYY-MM-DD`: the local days `trips` named.
+- `z` is 0 to 22, the zoom level the day is thinned for: a point within a
+  third of a logical pixel of the line between its neighbors is dropped.
+  Left out, the lines keep every point that changes their shape, short
+  of the answer's budget.
+- `id` is echoed on every message of the answer.
+
 ## Files
 
 - Charts: `$XDG_DATA_HOME/omahelm/charts/ENC_ROOT/<CELL>/<CELL>.000` and its
@@ -130,3 +208,9 @@ within about 10 logical pixels, and the areas that contain the point.
   deleted when the engine starts.
 - Settings: `$XDG_CONFIG_HOME/omahelm/config.toml`. The engine re-reads it,
   and the Omarchy theme's `colors.toml`, when they change.
+- Tracks: `<logbook>/tracks/*.gpx`, written by
+  [omalogbook](https://github.com/shieldsworks/omalogbook) and only read
+  here. The folder is the `logbook` setting, else the `vault` omalogbook
+  is configured for, else `~/Logbook`. A folder of GPX files named
+  straight at the setting works too. The engine re-reads them whenever a
+  `trips` or `trip` request comes in and a file has changed.

@@ -12,3 +12,4 @@ pub mod s57;
 pub mod server;
 pub mod style;
 pub mod text;
+pub mod trips;

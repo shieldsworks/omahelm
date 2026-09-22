@@ -31,6 +31,18 @@ pub fn scale_denominator(zoom: f64, lat: f64) -> f64 {
     meters_per_pixel(zoom, lat) / 0.000_28
 }
 
+/// The distance between two positions in nautical miles, over the ground:
+/// the great circle on a sphere of the earth's mean radius. Mercator
+/// distances are no use for this — the projection stretches with latitude.
+pub fn distance_nm(a: (f64, f64), b: (f64, f64)) -> f64 {
+    const RADIUS_NM: f64 = 6_371_008.8 / NM;
+    let (lat1, lat2) = (a.0.to_radians(), b.0.to_radians());
+    let half_lat = ((lat2 - lat1) / 2.0).sin();
+    let half_lon = ((b.1 - a.1).to_radians() / 2.0).sin();
+    let h = half_lat * half_lat + lat1.cos() * lat2.cos() * half_lon * half_lon;
+    2.0 * RADIUS_NM * h.clamp(0.0, 1.0).sqrt().asin()
+}
+
 /// A rectangle in Web Mercator units.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Rect {
@@ -150,6 +162,16 @@ mod tests {
         // Zoom 15 at the Bay is about 1:14,000, a harbor chart.
         let s = scale_denominator(15.0, 37.87);
         assert!((13_000.0..15_000.0).contains(&s), "{s}");
+    }
+
+    #[test]
+    fn a_minute_of_latitude_is_a_mile() {
+        let nm = distance_nm((37.0, -122.0), (37.0 + 1.0 / 60.0, -122.0));
+        assert!((nm - 1.0).abs() < 0.002, "{nm}");
+        // A minute of longitude is shorter by the cosine of the latitude.
+        let east = distance_nm((37.0, -122.0), (37.0, -122.0 + 1.0 / 60.0));
+        assert!((east - 37.0f64.to_radians().cos()).abs() < 0.002, "{east}");
+        assert_eq!(distance_nm((37.0, -122.0), (37.0, -122.0)), 0.0);
     }
 
     #[test]

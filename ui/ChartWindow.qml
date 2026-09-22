@@ -133,7 +133,20 @@ Item {
         target: app.helm
         function onTile(m) { map.tileArrived(m); }
         function onFeatures(m) { if (m.id === app.queryId) app.result = m; }
-        function onRejected(message) { app.toast(message); }
+        function onRejected(message) {
+            // An engine older than this window has no logbook in it. Said
+            // on the layer's chip, where it can be acted on, rather than
+            // as a message that passes.
+            if (message.indexOf("unknown type trip") === 0) {
+                app.tripsError = "update the chart engine";
+                return;
+            }
+            if (message.indexOf("trip:") === 0) {
+                app.tripsError = message.slice(5).trim();
+                return;
+            }
+            app.toast(message);
+        }
         function onStateChanged() { app.placeCamera(); app.warnNight(); }
         // A question the engine can no longer answer.
         function onConnectedChanged() { if (!app.helm.connected && app.cardOpen && app.result === null) app.result = {features: [], lost: true}; }
@@ -773,6 +786,187 @@ Item {
             + "T from here" + (age ? ", " + age : "");
     }
 
+    // ------------------------------------------------------- the logbook
+
+    // Where the boat has been: p. The engine reads omalogbook's vault and
+    // joins each day's passages into the one trip they were, with a
+    // straight line across every hole the lost fixes left. A season of
+    // them in one view is what the layer is for; d opens the calendar to
+    // pick a day out of it.
+    //
+    // Unlike the wind and the stream, this is omahelm's own engine
+    // answering: no second socket, nothing to start, and the tracks are
+    // on disk rather than forecast, so nothing here follows the clock.
+    property bool tripsOn: false
+    // The index: one entry a day, oldest first. What the calendar marks.
+    property var tripDays: []
+    // ok, empty, none — or "" until the engine has answered once.
+    property string tripsStatus: ""
+    property string tripsRoot: ""
+    property string tripsError: ""
+    // The days as drawn, for the zoom level they were asked at.
+    property var tripLines: []
+    property int tripId: 0
+    property int tripLevel: -1
+    property bool tripsMore: false
+    // An answer as it arrives, a day at a time. It takes the chart's
+    // place only once it is whole, so a zoom never shows half a season.
+    property var tripsArriving: []
+    // The day picked out of the calendar, "" for none.
+    property string tripDay: ""
+    property bool calendarOpen: false
+
+    // A day is answered a message at a time, so an answer to a request
+    // that has been replaced — the layer turned off, another zoom level —
+    // is still on its way. It mustn't land on the chart.
+    function forgetTrips() {
+        tripId += 1;
+        tripsArriving = [];
+    }
+    function toggleTrips() {
+        tripsOn = !tripsOn;
+        tripsError = "";
+        if (!tripsOn) {
+            calendarOpen = false;
+            forgetTrips();
+            tripLines = [];
+            tripLevel = -1;
+        } else tripsSettle.restart();
+        saveSoon.restart();
+    }
+    function toggleCalendar() {
+        if (calendarOpen) {
+            calendarOpen = false;
+            return;
+        }
+        if (!tripsOn) toggleTrips();
+        calendar.open();
+        calendarOpen = true;
+    }
+
+    // Two requests, asked for apart, because they go stale for different
+    // reasons. The index — what the calendar marks — is the same at every
+    // zoom, so a zoom never asks for it again; a season of days is a
+    // message worth not re-sending on every notch of the wheel.
+    function requestTripDays() {
+        if (!tripsOn || !helm.connected) return;
+        helm.send({type: "trips"});
+    }
+    // The lines are drawn for a zoom level, so they are asked for once a
+    // level. A pan needs nothing: a trip is not a forecast and doesn't
+    // change as the hours pass.
+    function requestTripLines() {
+        if (!tripsOn || !helm.connected) return;
+        tripId += 1;
+        tripsArriving = [];
+        tripLevel = map.level;
+        tripsMore = false;
+        helm.send({type: "trip", id: tripId, z: map.level});
+    }
+    function requestTrips() {
+        requestTripDays();
+        requestTripLines();
+    }
+    // Only the lines settle: a zoom is a flurry of levels, and the index
+    // isn't asked for on that path at all.
+    Timer { id: tripsSettle; interval: 200; onTriggered: app.requestTripLines() }
+    // However the layer came on — the key, the chip, or the view it was
+    // left in last time — it asks for both.
+    onTripsOnChanged: {
+        if (!tripsOn) return;
+        requestTripDays();
+        tripsSettle.restart();
+    }
+    // Today's track is still being written while the layer is up.
+    Timer {
+        interval: 300000
+        repeat: true
+        running: app.tripsOn && app.helm.connected
+        onTriggered: app.requestTrips()
+    }
+    Connections {
+        target: map
+        function onLevelChanged() {
+            if (app.tripsOn && map.level !== app.tripLevel) tripsSettle.restart();
+        }
+    }
+    Connections {
+        target: app.helm
+        function onIndex(m) {
+            app.tripDays = m.days;
+            // Opened before the engine answered, the calendar had no last
+            // day to start on. It has one now.
+            if (app.calendarOpen) calendar.open();
+            app.tripsStatus = typeof m.status === "string" ? m.status : "";
+            app.tripsRoot = typeof m.root === "string" ? m.root : "";
+            app.tripsError = "";
+            // A day that has gone from the vault can't stay on the chart.
+            if (app.tripDay !== "" && !m.days.some(d => d.date === app.tripDay)) app.tripDay = "";
+        }
+        function onTrip(m) {
+            // An answer to a request another zoom level has replaced
+            // would draw the season twice over.
+            if (m.id !== app.tripId) return;
+            if (typeof m.date === "string") app.tripsArriving = app.tripsArriving.concat([m]);
+            if (m.last !== true) return;
+            // Whole: the lines already up give way to it, all at once.
+            app.tripLines = app.tripsArriving;
+            app.tripsArriving = [];
+            app.tripsMore = m.more === true;
+        }
+        function onConnectedChanged() {
+            if (!app.helm.connected || !app.tripsOn) return;
+            app.requestTripDays();
+            tripsSettle.restart();
+        }
+    }
+
+    // The day picked out: the chart goes to it, and following the boat
+    // stops, because the boat is not where the day was.
+    function showDay(date) {
+        tripDay = date;
+        calendarOpen = false;
+        var day = tripDays.find(d => d.date === date);
+        if (day && day.bbox) {
+            var b = day.bbox;
+            var padLat = Math.max(0.0008, (b.north - b.south) * 0.08);
+            var padLon = Math.max(0.001, (b.east - b.west) * 0.08);
+            follow = false;
+            map.fit(b.west - padLon, b.south - padLat, b.east + padLon, b.north + padLat);
+            // A day that never left the slip would fill the window with
+            // one berth.
+            if (map.zoom > 15) map.zoom = 15;
+            placed = true;
+        }
+        saveSoon.restart();
+    }
+    function clearDay() {
+        tripDay = "";
+        saveSoon.restart();
+    }
+
+    readonly property var tripToday: tripDay !== "" ? tripDays.find(d => d.date === tripDay) || null : null
+    function dayWords(date) { return Qt.formatDate(new Date(date + "T12:00:00"), "ddd d MMM yyyy"); }
+
+    readonly property string tripsText: {
+        if (!tripsOn) return "";
+        if (tripsError !== "") return "TRIPS  " + tripsError;
+        if (!helm.connected) return "TRIPS  no chart engine";
+        if (tripsStatus === "") return "TRIPS  reading the logbook…";
+        if (tripsStatus === "none") return "TRIPS  no logbook at " + tripsRoot;
+        if (tripsStatus === "empty") return "TRIPS  no tracks in " + tripsRoot;
+        var day = tripToday;
+        if (day) {
+            var out = "TRIPS  " + dayWords(day.date) + "   " + day.distanceNm.toFixed(1) + " nm";
+            if (day.gapNm > 0.05) out += "   " + day.gapNm.toFixed(1) + " inferred";
+            return out;
+        }
+        var nm = 0;
+        for (var i = 0; i < tripDays.length; i++) nm += tripDays[i].distanceNm;
+        return "TRIPS  " + tripDays.length + (tripDays.length === 1 ? " day" : " days")
+            + "   " + Math.round(nm) + " nm" + (tripsMore ? "  (the latest)" : "");
+    }
+
     // ---------------------------------------------------------- the view
 
     // $XDG_STATE_HOME/omahelm/view.json: the last camera and the waypoint.
@@ -805,6 +999,9 @@ Item {
             if (s.wind === true) windOn = true;
             if (s.stream === true) streamOn = true;
             if (s.timeBar === true) timeBar = true;
+            if (s.trips === true) tripsOn = true;
+            if (typeof s.tripDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s.tripDay))
+                tripDay = s.tripDay;
         } else if (helm.state && helm.state.charts && helm.state.charts.extent) {
             var e = helm.state.charts.extent;
             map.fit(e.west, e.south, e.east, e.north);
@@ -832,6 +1029,8 @@ Item {
         if (windOn) view.wind = true;
         if (streamOn) view.stream = true;
         if (timeBar) view.timeBar = true;
+        if (tripsOn) view.trips = true;
+        if (tripDay !== "") view.tripDay = tripDay;
         var text = JSON.stringify(view);
         var slash = viewPath.lastIndexOf("/");
         writer.command = ["sh", "-c", 'mkdir -p -- "$1" && printf "%s\\n" "$3" > "$2" && mv -f -- "$2" "$4"',
@@ -916,7 +1115,8 @@ Item {
     function key(e) {
         var t = e.key === Qt.Key_Escape ? "Escape"
             : e.key === Qt.Key_Left ? "h" : e.key === Qt.Key_Right ? "l"
-            : e.key === Qt.Key_Up ? "k" : e.key === Qt.Key_Down ? "j" : e.text;
+            : e.key === Qt.Key_Up ? "k" : e.key === Qt.Key_Down ? "j"
+            : e.key === Qt.Key_Return || e.key === Qt.Key_Enter ? "Enter" : e.text;
         // A held n would flicker between palettes.
         if (t === "n" && e.isAutoRepeat) { e.accepted = true; return; }
         e.accepted = run(t);
@@ -926,6 +1126,24 @@ Item {
     function run(t) {
         if (sheet.visible) {
             if (t === "Escape" || t === "?" || t === "q") sheet.visible = false;
+            return true;
+        }
+        // The calendar has the keys while it is open: the day, the month,
+        // and the days actually sailed.
+        if (calendarOpen) {
+            if (t === "Escape" || t === "d" || t === "q") calendarOpen = false;
+            else if (t === "h") calendar.step(-1);
+            else if (t === "l") calendar.step(1);
+            else if (t === "k") calendar.step(-7);
+            else if (t === "j") calendar.step(7);
+            else if (t === "[") calendar.stepMonth(-1);
+            else if (t === "]") calendar.stepMonth(1);
+            else if (t === "{") calendar.stepSailed(-1);
+            else if (t === "}") calendar.stepSailed(1);
+            else if (t === "Enter" || t === " ") calendar.pick();
+            else if (t === "t") calendar.cursor = calendar.today;
+            else if (t === "x") { clearDay(); calendarOpen = false; }
+            else return false;
             return true;
         }
         if (t === "Escape") { if (cardOpen) closeCard(); }
@@ -949,6 +1167,8 @@ Item {
         else if (t === "n") toggleNight();
         else if (t === "b") toggleWind();
         else if (t === "s") toggleStream();
+        else if (t === "p") toggleTrips();
+        else if (t === "d") toggleCalendar();
         else if (t === "t") toggleTimeBar();
         else if (t === "]") stepWind(1);
         else if (t === "[") stepWind(-1);
@@ -971,6 +1191,11 @@ Item {
             app.placed = true;
         }
         function press(key: string): void { app.run(key); }
+        // A day out of the logbook, or "" for all of them.
+        function day(date: string): void {
+            if (date === "") app.clearDay();
+            else app.showDay(date);
+        }
         // A click at a point of the map, left (`query`) or right (`waypoint`).
         function click(x: real, y: real, button: string): void {
             var lat = Geo.lat(map.cy + (y - map.height / 2) / map.world);
@@ -1007,6 +1232,10 @@ Item {
                                    streamCurveAt: app.streamCurve ? app.streamCurve.name : "",
                                    streamEngine: app.stream.connected, streamText: app.streamText,
                                    hoverStream: map.hoverStream ? map.hoverStream.station : "",
+                                   trips: app.tripsOn, tripDays: app.tripDays.length,
+                                   tripLines: app.tripLines.length, tripDay: app.tripDay,
+                                   tripsStatus: app.tripsStatus, tripsText: app.tripsText,
+                                   calendar: app.calendarOpen, calendarAt: calendar.cursor,
                                    cursor: app.cursorText});
         }
     }
@@ -1056,6 +1285,8 @@ Item {
                 wind: app.windField
                 stations: app.windStations
                 streams: app.streamArrows
+                trips: app.tripLines
+                tripDay: app.tripDay
                 onPointed: (lat, lon, x, y, action) => {
                     if (action === "waypoint") app.setWaypoint(lat, lon);
                     else app.query(lat, lon, x, y);
@@ -1166,6 +1397,23 @@ Item {
                     }
                 }
                 Rectangle {
+                    visible: app.tripsOn
+                    height: 24
+                    width: tripsLabel.implicitWidth + 16
+                    color: app.calendarOpen ? app.theme.accent : Qt.alpha(app.theme.background, 0.85)
+                    border.width: 1
+                    border.color: app.calendarOpen ? app.theme.accent : Qt.alpha(app.theme.foreground, 0.25)
+                    Label {
+                        id: tripsLabel
+                        anchors.centerIn: parent
+                        text: app.tripsText
+                        color: app.calendarOpen ? app.theme.background : app.theme.foreground
+                        font.pixelSize: app.theme.baseSize - 1
+                    }
+                    // The chip is the way to the calendar without a key.
+                    MouseArea { anchors.fill: parent; onClicked: app.toggleCalendar() }
+                }
+                Rectangle {
                     visible: app.windOn || app.streamOn
                     height: 24
                     width: timeLabel.implicitWidth + 16
@@ -1181,6 +1429,20 @@ Item {
                     }
                     MouseArea { anchors.fill: parent; onClicked: { app.toggleTimeBar(); saveSoon.restart(); } }
                 }
+            }
+
+            // The logbook's calendar: d, or the TRIPS chip. Under the
+            // chips, on the side the layer's own chip is, so the eye
+            // goes from the chip to the month without crossing the chart.
+            Calendar {
+                id: calendar
+                visible: app.calendarOpen
+                z: 33
+                anchors { top: parent.top; left: parent.left; topMargin: 44; leftMargin: 10 }
+                theme: app.theme
+                days: app.tripDays
+                selected: app.tripDay
+                onPicked: date => app.showDay(date)
             }
 
             // The wind over time: the forecast at the boat hour by hour, an
@@ -1653,6 +1915,8 @@ Item {
                             ["W", "clear the waypoint"],
                             ["b", "wind barbs from omawind: forecast, and measured on dots"],
                             ["s", "tidal stream from omatide: an arrow at each station"],
+                            ["p", "your trips from omalogbook: every day you have sailed"],
+                            ["d", "the calendar: a day with a track, and go there"],
                             ["[  ]", "an hour earlier, later"],
                             ["t", "the time bar: the wind and the stream by the hour"],
                             ["space", "play the hours one after another"],

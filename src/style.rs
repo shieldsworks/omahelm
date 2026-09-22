@@ -315,6 +315,9 @@ pub struct Settings {
     pub deep_contour: f64,
     /// `theme` or `paper`.
     pub palette: String,
+    /// The logbook vault the trips layer reads, when it isn't the one
+    /// omalogbook is configured for.
+    pub logbook: Option<String>,
 }
 
 impl Default for Settings {
@@ -328,6 +331,7 @@ impl Default for Settings {
             safety_contour: 12.0 * 0.3048,
             deep_contour: 30.0 * 0.3048,
             palette: "theme".into(),
+            logbook: None,
         }
     }
 }
@@ -378,6 +382,13 @@ impl Settings {
                     s.safety_contour = depth(&mut problems).unwrap_or(s.safety_contour)
                 }
                 "deep_contour" => s.deep_contour = depth(&mut problems).unwrap_or(s.deep_contour),
+                "logbook" => {
+                    if v.is_empty() {
+                        problems.push("logbook: expected a folder".into());
+                    } else {
+                        s.logbook = Some(v.clone());
+                    }
+                }
                 "palette" => match v.as_str() {
                     "theme" | "paper" => s.palette = v.clone(),
                     other => problems.push(format!("palette: {other} is not theme or paper")),
@@ -395,8 +406,21 @@ impl Settings {
         (s, problems)
     }
 
+    /// What the tiles are drawn from. The logbook is left out: it changes
+    /// nothing about the chart, and pointing it somewhere else mustn't
+    /// throw away every tile in the cache.
     pub fn key(&self) -> String {
-        format!("{self:?}")
+        format!(
+            "{:?}",
+            (
+                self.units,
+                self.safety_depth,
+                self.shallow_contour,
+                self.safety_contour,
+                self.deep_contour,
+                &self.palette,
+            )
+        )
     }
 }
 
@@ -481,6 +505,13 @@ mod tests {
         assert_eq!(s.safety_depth, 2.0);
         assert_eq!(s.safety_contour, 5.0);
         assert_eq!(problems, vec!["unknown setting bogus".to_string()]);
+        let (s, problems) = Settings::parse("logbook = \"~/Sailing/Log\"\n");
+        assert_eq!(s.logbook.as_deref(), Some("~/Sailing/Log"));
+        assert!(problems.is_empty());
+        // The logbook is not part of how a tile is drawn.
+        let mut other = s.clone();
+        other.logbook = Some("/elsewhere".into());
+        assert_eq!(s.key(), other.key());
         let (s, _) = Settings::parse("");
         assert!((s.safety_contour - 3.6576).abs() < 1e-9);
     }

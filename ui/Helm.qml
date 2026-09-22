@@ -29,6 +29,9 @@ QtObject {
     signal tile(var message)
     signal features(var message)
     signal rejected(string message)
+    // The logbook: `trips` is the index of days, `trip` one day's lines.
+    signal index(var message)
+    signal trip(var message)
 
     function receive(line) {
         var m;
@@ -54,9 +57,42 @@ QtObject {
             if (m.error !== undefined || helm.validPath(m.path)) helm.tile(m);
         } else if (m.type === "features") {
             helm.features(m);
+        } else if (m.type === "trips") {
+            if (Array.isArray(m.days)) helm.index(helm.listed(m));
+        } else if (m.type === "trip") {
+            helm.trip(helm.drawable(m));
         } else if (m.type === "error") {
             helm.rejected(String(m.message || ""));
         }
+    }
+
+    // Days the calendar can put a mark on: a date it can read and numbers
+    // it can print.
+    function listed(m) {
+        var kept = m.days.filter(d => d !== null && typeof d === "object"
+            && typeof d.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(d.date)
+            && typeof d.distanceNm === "number" && isFinite(d.distanceNm)
+            && typeof d.gapNm === "number" && isFinite(d.gapNm)
+            && typeof d.passages === "number");
+        return Object.assign({}, m, {days: kept});
+    }
+
+    // A day as the chart can draw it: lines of lat, lon pairs and nothing
+    // else, so a broken engine can't put a stroke across the Pacific.
+    function drawable(m) {
+        function lines(v) {
+            if (!Array.isArray(v)) return [];
+            return v.filter(l => Array.isArray(l) && l.length >= 4 && l.length % 2 === 0
+                && l.every((n, i) => typeof n === "number" && isFinite(n)
+                    && (i % 2 ? n >= -180 && n <= 180 : n >= -90 && n <= 90)));
+        }
+        function end(v) {
+            return Array.isArray(v) && v.length === 2
+                && v.every(n => typeof n === "number" && isFinite(n))
+                && v[0] >= -90 && v[0] <= 90 && v[1] >= -180 && v[1] <= 180 ? v : undefined;
+        }
+        return Object.assign({}, m, {runs: lines(m.runs), gaps: lines(m.gaps),
+                                     start: end(m.start), end: end(m.end)});
     }
 
     // `<z>/<x>/<y>@<scale>.png`, nothing else: a path can't climb out of

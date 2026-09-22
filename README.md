@@ -7,7 +7,9 @@ soundings in feet, depth contours and shading, buoys and beacons labeled
 the way a paper chart labels them (`G "3"`, `Fl G 4s 4M`), lights with
 their sectors, rocks, wrecks and isolated dangers, traffic lanes,
 anchorages and restricted areas. Your boat, its track and the AIS traffic
-come from [omakeel](https://github.com/shieldsworks/omakeel).
+come from [omakeel](https://github.com/shieldsworks/omakeel), and every day
+you have sailed from
+[omalogbook](https://github.com/shieldsworks/omalogbook).
 
 It reads the charts itself. The S-57 reader, the chart updates, the
 symbols and the renderer are all written from scratch in Rust, with no
@@ -66,6 +68,9 @@ skipped; `omahelm index` lists them.
 | `w`, right-click | Set a waypoint: bearing, range and ETA from the boat |
 | `W` | Clear the waypoint |
 | `b` | Wind barbs, from [omawind](https://github.com/shieldsworks/omawind): the forecast, and the wind NOAA's stations measured |
+| `s` | The tidal stream, from [omatide](https://github.com/shieldsworks/omatide): an arrow at each of NOAA's current stations |
+| `p` | Your trips: every day your logbook has a track for |
+| `d` | The calendar: pick a day you sailed and go there |
 | `[` `]` | The wind an hour earlier, later |
 | `t` | The time bar: the forecast at the boat, hour by hour |
 | Space | Play the wind hour by hour |
@@ -98,6 +103,40 @@ the hour and the wind at the boat then, like `Tue 14:00  250°T 12G16 kn`.
 Space, or the play button, steps through the hours. Hours already fetched
 are kept, so going back over them is instant.
 
+## Where you've been
+
+`p` draws every day [omalogbook](https://github.com/shieldsworks/omalogbook)
+kept a track for. After a season that is one picture of your waters: every
+trip you have made, in the theme's accent color.
+
+Omalogbook closes a passage whenever the fix is lost for long enough, so
+one afternoon can land on disk as four GPX files with holes between them.
+Omahelm puts the day back together: the passages in the order you sailed
+them, joined into the single trip they were. Where the fix was lost it
+draws a straight line, **dashed**, because that line is inferred and not
+where the boat went — on a flood at the Gate it is nowhere near. Solid is
+track. Dashed is a guess. The chip says how much of the day was which:
+`TRIPS  Mon 21 Sep 2026   20.2 nm   2.5 inferred`.
+
+`d`, or the TRIPS chip, opens a calendar. Days you sailed carry a dot, and
+the one on the chart a filled one. Move by day with the arrows or `h j k l`,
+by month with `[` `]`, and to the next day you actually sailed with `{` `}`.
+Enter shows that day: the chart goes to it, the trip is drawn over the rest
+with a ring where the day began and a dot where it ended, and the day's
+run, passages and hours are named. `x` goes back to all of them.
+
+The tracks are only read, never written: the vault is omalogbook's. Two
+commands do the same from a terminal, with no window and no engine:
+
+```sh
+omahelm trips                                  # the days, with their runs
+omahelm trip --date 2026-09-21 --out day.gpx   # that day as one GPX track
+```
+
+`omahelm trip` writes the day as a single track with its holes closed, for
+anything else that reads GPX. The file says in its description how much of
+it was inferred.
+
 ## Settings
 
 `~/.config/omahelm/config.toml`, all optional:
@@ -109,10 +148,15 @@ shallow_contour = 6
 safety_contour = 12     # water shallower than this is shaded as unsafe
 deep_contour = 30
 palette = "theme"       # theme, or paper for the colors of a paper chart
+logbook = "~/Logbook"   # the tracks the trips layer draws
 ```
 
 Depths are in `units`. Omahelm uses the shallowest contour the chart has at
 or below your safety contour, the way S-52 does.
+
+`logbook` is only needed if your vault isn't where omalogbook's own config
+says it is. Omahelm reads `<logbook>/tracks/*.gpx`, or the folder itself if
+it holds the GPX files.
 
 The colors follow the Omarchy theme and change with it. Colors that mean
 something at sea don't: a green buoy stays green even if your theme's
