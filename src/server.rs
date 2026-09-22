@@ -687,9 +687,11 @@ fn trips_index(engine: &Arc<Engine>) -> Value {
 /// `trip`: a day, or a range of them, drawn for a zoom level. One message
 /// per day, the last of them marked, as `tiles` answers tile by tile.
 fn trip(engine: &Arc<Engine>, client: u64, m: &Value) -> Result<(), String> {
+    // No zoom keeps every point, which is what a client re-exporting a
+    // day wants; the budget below still bounds the answer.
     let z = match m.get("z") {
-        None => 18,
-        Some(v) => v.as_u64().filter(|z| *z <= 22).ok_or("z must be 0 to 22")?,
+        None => None,
+        Some(v) => Some(v.as_u64().filter(|z| *z <= 22).ok_or("z must be 0 to 22")? as u32),
     };
     let date = |key: &str| -> Result<Option<String>, String> {
         match m.get(key) {
@@ -714,9 +716,12 @@ fn trip(engine: &Arc<Engine>, client: u64, m: &Value) -> Result<(), String> {
         } else {
             &days[..]
         };
+        // The budget is shared between the days that answer, so a season
+        // asked for at close range is thinned rather than sent whole.
+        let each = trips::budget(kept.len());
         (
             kept.iter()
-                .map(|d| d.drawing(z as u32))
+                .map(|d| d.drawing(z, each))
                 .collect::<Vec<Value>>(),
             more,
         )

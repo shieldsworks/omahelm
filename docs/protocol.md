@@ -99,7 +99,7 @@ first. The days themselves are drawn from `trip`.
 ```json
 {"type":"trips","v":1,"status":"ok","root":"/home/casey/Logbook",
  "days":[{"date":"2026-09-21","passages":4,"points":1516,
-          "distanceNm":20.2,"gapNm":2.45,"gaps":3,"seconds":17260,
+          "distanceNm":20.2,"gapNm":2.45,"holes":3,"seconds":17260,
           "from":"2026-09-21T18:43:30Z","to":"2026-09-21T23:31:10Z",
           "bbox":{"west":-122.450883,"south":37.810592,
                   "east":-122.313158,"north":37.880113}}]}
@@ -110,8 +110,8 @@ first. The days themselves are drawn from `trip`.
 - `root` is the folder the days were read from.
 - `date` is the local day the passages are filed under.
 - `distanceNm` is the whole trip as it is drawn, the straight lines across
-  the holes included. `gapNm` is how much of that was inferred and `gaps`
-  how many holes there were. `points` counts the fixes actually recorded.
+  the holes included. `gapNm` is how much of that was inferred and `holes`
+  how many there were. `points` counts the fixes actually recorded.
 - `from`, `to` and `seconds` are the day's first and last fix, in UTC. A
   day whose track carries no times at all has none of the three.
 - `skipped` counts files that held no usable point. Absent when none did.
@@ -124,7 +124,7 @@ rectangle a tile at a time.
 {"type":"trip","v":1,"id":7,"date":"2026-09-21","z":13,"drawn":249,
  "runs":[[37.866705,-122.313328,37.86662,-122.313227]],
  "gaps":[[37.869063,-122.450883,37.82839,-122.449358]],
- "distanceNm":20.2,"gapNm":2.45,"gaps":3,"passages":4,
+ "distanceNm":20.2,"gapNm":2.45,"holes":3,"passages":4,
  "bbox":{"west":-122.450883,"south":37.810592,
          "east":-122.313158,"north":37.880113},
  "last":true,"days":1}
@@ -133,8 +133,12 @@ rectangle a tile at a time.
 - A **run** is track: a line of `lat, lon` pairs the receiver reported. A
   **gap** is the straight line between two runs. It is inferred, not
   sailed, and a client must draw it so that the two can't be confused.
-- The day's other keys are the ones `trips` sends for it.
-- `drawn` counts the points left after thinning.
+- The day's other keys are the ones `trips` sends for it. `holes` is the
+  count; `gaps` here are the lines across them.
+- `drawn` counts the points left after thinning. One answer carries at
+  most 120,000 points, shared between the days in it, so a season asked
+  for at close range is thinned harder rather than sent whole. A line is
+  never cut short: thinning drops points from the middle, never the ends.
 - The last message of an answer carries `"last": true` and `days`, how
   many it sent. A request that matched nothing is that message alone,
   with no `date`. `"more": true` says days were left out: at most 500
@@ -185,9 +189,10 @@ within about 10 logical pixels, and the areas that contain the point.
 - `date` for one day, or `from` and `to` for a range; either end may be
   left out, and with none of the three every day answers.
 - Dates are `YYYY-MM-DD`: the local days `trips` named.
-- `z` is 0 to 22, the zoom level the day is thinned for. A point within a
+- `z` is 0 to 22, the zoom level the day is thinned for: a point within a
   third of a logical pixel of the line between its neighbors is dropped.
-  Left out, nothing is thinned.
+  Left out, the lines keep every point that changes their shape, short
+  of the answer's budget.
 - `id` is echoed on every message of the answer.
 
 ## Files

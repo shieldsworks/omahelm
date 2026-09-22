@@ -809,15 +809,26 @@ Item {
     property int tripId: 0
     property int tripLevel: -1
     property bool tripsMore: false
+    // An answer as it arrives, a day at a time. It takes the chart's
+    // place only once it is whole, so a zoom never shows half a season.
+    property var tripsArriving: []
     // The day picked out of the calendar, "" for none.
     property string tripDay: ""
     property bool calendarOpen: false
 
+    // A day is answered a message at a time, so an answer to a request
+    // that has been replaced — the layer turned off, another zoom level —
+    // is still on its way. It mustn't land on the chart.
+    function forgetTrips() {
+        tripId += 1;
+        tripsArriving = [];
+    }
     function toggleTrips() {
         tripsOn = !tripsOn;
         tripsError = "";
         if (!tripsOn) {
             calendarOpen = false;
+            forgetTrips();
             tripLines = [];
             tripLevel = -1;
         } else tripsSettle.restart();
@@ -843,8 +854,8 @@ Item {
         if (!tripsOn || !helm.connected) return;
         helm.send({type: "trips"});
         tripId += 1;
+        tripsArriving = [];
         tripLevel = map.level;
-        tripLines = [];
         tripsMore = false;
         helm.send({type: "trip", id: tripId, z: map.level});
     }
@@ -869,6 +880,9 @@ Item {
         target: app.helm
         function onIndex(m) {
             app.tripDays = m.days;
+            // Opened before the engine answered, the calendar had no last
+            // day to start on. It has one now.
+            if (app.calendarOpen) calendar.open();
             app.tripsStatus = typeof m.status === "string" ? m.status : "";
             app.tripsRoot = typeof m.root === "string" ? m.root : "";
             app.tripsError = "";
@@ -879,8 +893,12 @@ Item {
             // An answer to a request another zoom level has replaced
             // would draw the season twice over.
             if (m.id !== app.tripId) return;
-            if (typeof m.date === "string") app.tripLines = app.tripLines.concat([m]);
-            if (m.last === true) app.tripsMore = m.more === true;
+            if (typeof m.date === "string") app.tripsArriving = app.tripsArriving.concat([m]);
+            if (m.last !== true) return;
+            // Whole: the lines already up give way to it, all at once.
+            app.tripLines = app.tripsArriving;
+            app.tripsArriving = [];
+            app.tripsMore = m.more === true;
         }
         function onConnectedChanged() { if (app.helm.connected && app.tripsOn) tripsSettle.restart(); }
     }

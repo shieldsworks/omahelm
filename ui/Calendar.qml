@@ -38,8 +38,13 @@ Rectangle {
     }
     // The cursor starts on the day being shown, else the last day sailed,
     // else today: never on an empty month the user has to climb out of.
+    // Opened before the engine has answered there is no last day yet, so
+    // the placing is done again when the days arrive.
+    property bool unplaced: false
     function open() {
-        if (cursor === "") cursor = selected || (days.length ? days[days.length - 1].date : today);
+        if (cursor !== "" && !unplaced) return;
+        cursor = selected || (days.length ? days[days.length - 1].date : today);
+        unplaced = days.length === 0;
     }
     function step(byDays) {
         var d = parse(cursor);

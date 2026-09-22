@@ -26,10 +26,20 @@ use std::time::SystemTime;
 /// writes a point every ten seconds by default and a receiver misses one
 /// now and then, so the threshold is well clear of that.
 const GAP_SECONDS: i64 = 90;
-/// Points per day after thinning. A day at the far end of a season's view
-/// is a few strokes; this only stops one pathological file from filling
-/// the socket.
+/// Points a single day may be drawn with.
 const MAX_POINTS: usize = 4000;
+/// Points one answer may carry, shared between the days in it, and the
+/// fewest a day is ever given. A season asked for at close range would
+/// otherwise run to tens of megabytes down the socket and as many
+/// line segments through the window's canvas on every pan.
+pub const POINT_BUDGET: usize = 120_000;
+const MIN_POINTS: usize = 300;
+
+/// How many points each day may be drawn with when `days` of them answer
+/// one request.
+pub fn budget(days: usize) -> usize {
+    (POINT_BUDGET / days.max(1)).clamp(MIN_POINTS, MAX_POINTS)
+}
 /// Days one request may ask for.
 pub const MAX_DAYS: usize = 500;
 
@@ -149,7 +159,9 @@ impl Day {
             "points": self.points(),
             "distanceNm": round(self.run_nm() + self.gap_nm(), 2),
             "gapNm": round(self.gap_nm(), 2),
-            "gaps": self.gaps().count(),
+            // Not `gaps`: a drawing carries the gaps themselves under
+            // that name, and one key must not mean two things.
+            "holes": self.gaps().count(),
         });
         if from > 0 {
             v["from"] = json!(iso_utc(from));
@@ -163,20 +175,24 @@ impl Day {
     }
 
     /// The day as the chart draws it: runs and gaps as separate lines of
-    /// `lat, lon, lat, lon…`, thinned for a zoom level.
-    pub fn drawing(&self, z: u32) -> Value {
-        let mut tol = tolerance(z);
+    /// `lat, lon, lat, lon…`, thinned for a zoom level. No zoom keeps
+    /// every point, short of the budget.
+    pub fn drawing(&self, z: Option<u32>, max_points: usize) -> Value {
+        let mut tol = z.map_or(0.0, tolerance);
         let (mut runs, mut gaps) = self.lines(tol);
         // A day that still won't fit is thinned harder rather than cut off
         // halfway, which would draw a trip that stops in open water.
-        while count(&runs) > MAX_POINTS && tol < 1.0 {
-            tol *= 4.0;
+        while count(&runs) > max_points && tol < 1.0 {
+            // Thinning nothing four times over is still nothing.
+            tol = if tol > 0.0 { tol * 4.0 } else { tolerance(22) };
             let next = self.lines(tol);
             runs = next.0;
             gaps = next.1;
         }
         let mut v = self.summary();
-        v["z"] = json!(z);
+        if let Some(z) = z {
+            v["z"] = json!(z);
+        }
         v["drawn"] = json!(count(&runs));
         v["runs"] = json!(runs);
         v["gaps"] = json!(gaps);
@@ -587,9 +603,22 @@ pub fn expand(path: &str) -> PathBuf {
 /// One GPX file, filed under the day it belongs to.
 struct Filed {
     date: String,
-    /// Its first timed fix, which orders the day's passages.
+    /// Its first timed fix, which orders the day's passages. A file whose
+    /// fixes carry no time is placed by [`place_untimed`].
     start: i64,
+    name: String,
     segments: Arc<Vec<Vec<Point>>>,
+}
+
+/// Where the GPX files are: `tracks/` as omalogbook keeps them, or the
+/// folder itself when the setting names one full of them.
+fn tracks_dir(vault: &Path) -> PathBuf {
+    let tracks = vault.join("tracks");
+    if tracks.is_dir() {
+        tracks
+    } else {
+        vault.to_path_buf()
+    }
 }
 
 #[derive(Clone)]
@@ -613,13 +642,7 @@ pub struct Log {
 
 impl Log {
     pub fn open(vault: PathBuf) -> Log {
-        // `tracks/` is where omalogbook keeps them; a folder of GPX files
-        // named straight at the setting works too.
-        let tracks = if vault.join("tracks").is_dir() {
-            vault.join("tracks")
-        } else {
-            vault.clone()
-        };
+        let tracks = tracks_dir(&vault);
         let mut log = Log {
             vault,
             tracks,
@@ -673,6 +696,11 @@ impl Log {
     /// running log grows today's file every few seconds, so this is asked
     /// before every answer; unchanged, it costs one directory listing.
     pub fn refresh(&mut self) {
+        // Resolved every time: omalogbook creates `tracks/` when it
+        // writes its first passage, which can be long after the engine
+        // started, and a vault without one must not stay a vault without
+        // one for the life of the process.
+        self.tracks = tracks_dir(&self.vault);
         let mut found: Vec<(PathBuf, u64, Option<SystemTime>)> = Vec::new();
         if let Ok(rd) = std::fs::read_dir(&self.tracks) {
             for e in rd.flatten() {
@@ -739,6 +767,7 @@ impl Log {
                 Some(date) => passages.push(Filed {
                     date,
                     start,
+                    name: name.clone(),
                     segments: entry.segments.clone(),
                 }),
                 None => self.skipped += 1,
@@ -746,11 +775,76 @@ impl Log {
             files.insert(path, entry);
         }
         self.files = files;
+        // The listing is by path, so a day's files arrive in name order,
+        // which is the order they were written: what `place_untimed`
+        // needs before anything is sorted.
+        place_untimed(&mut passages);
         // Oldest day first, and within a day the passages in the order
-        // they were sailed. A passage with no times keeps its name's order.
-        passages.sort_by(|a, b| a.date.cmp(&b.date).then(a.start.cmp(&b.start)));
+        // they were sailed. A day with no times at all keeps its files in
+        // name order.
+        passages.sort_by(|a, b| {
+            a.date
+                .cmp(&b.date)
+                .then(a.start.cmp(&b.start))
+                .then(a.name.cmp(&b.name))
+        });
         self.days = build(passages);
     }
+}
+
+/// Places the passages whose fixes carry no time — a GPX some editor
+/// wrote out without them — by the clock in their name, against the local
+/// midnight of a passage of the same day that does have one. Otherwise
+/// they would all sort to the front of their day, and the day would be
+/// joined in the wrong order: a straight line drawn back across the chart
+/// to where the boat had been hours before.
+///
+/// The passages must arrive grouped by day, in name order.
+fn place_untimed(passages: &mut [Filed]) {
+    let mut i = 0;
+    while i < passages.len() {
+        let mut j = i;
+        while j < passages.len() && passages[j].date == passages[i].date {
+            j += 1;
+        }
+        let day = &mut passages[i..j];
+        if let Some(midnight) = day
+            .iter()
+            .find(|f| f.start > 0)
+            .map(|f| local_midnight(f.start))
+        {
+            for f in day.iter_mut().filter(|f| f.start == 0) {
+                if let Some(seconds) = seconds_from_name(&f.name) {
+                    f.start = midnight + seconds;
+                }
+            }
+        }
+        i = j;
+    }
+}
+
+/// The start of the local day a moment falls in.
+fn local_midnight(epoch: i64) -> i64 {
+    local(epoch).map_or(epoch - epoch.rem_euclid(86_400), |tm| {
+        epoch - i64::from(tm.tm_hour) * 3600 - i64::from(tm.tm_min) * 60 - i64::from(tm.tm_sec)
+    })
+}
+
+/// Seconds into the day from a name like `2026-09-21-114330.gpx`, or
+/// `-1143` as omalogbook once wrote them.
+fn seconds_from_name(name: &str) -> Option<i64> {
+    let clock: String = name
+        .get(11..)?
+        .chars()
+        .take_while(char::is_ascii_digit)
+        .collect();
+    if clock.len() != 4 && clock.len() != 6 {
+        return None;
+    }
+    let at = |i: usize| clock.get(i..i + 2)?.parse::<i64>().ok();
+    let (hour, minute) = (at(0)?, at(2)?);
+    let second = if clock.len() == 6 { at(4)? } else { 0 };
+    (hour < 24 && minute < 60 && second < 60).then_some(hour * 3600 + minute * 60 + second)
 }
 
 /// A day's passages, joined: every continuous run in order, with a gap
@@ -908,10 +1002,19 @@ mod tests {
                 Filed {
                     date: date_from_name(name).unwrap(),
                     start,
+                    name: (*name).to_string(),
                     segments,
                 }
             })
-            .collect();
+            .collect::<Vec<Filed>>();
+        let mut passages = passages;
+        place_untimed(&mut passages);
+        passages.sort_by(|a, b| {
+            a.date
+                .cmp(&b.date)
+                .then(a.start.cmp(&b.start))
+                .then(a.name.cmp(&b.name))
+        });
         let mut days = build(passages);
         assert_eq!(days.len(), 1);
         days.remove(0)
@@ -959,7 +1062,12 @@ mod tests {
         assert!((day.run_nm() - 1.2).abs() < 0.02, "{}", day.run_nm());
         assert!((day.gap_nm() - 1.2).abs() < 0.02, "{}", day.gap_nm());
         let s = day.summary();
-        assert_eq!(s["gaps"], 1);
+        assert_eq!(s["holes"], 1);
+        // The count and the lines are different keys: a drawing carries
+        // the gaps themselves under `gaps`.
+        let drawn = day.drawing(Some(14), MAX_POINTS);
+        assert_eq!(drawn["holes"], 1);
+        assert_eq!(drawn["gaps"].as_array().unwrap().len(), 1);
         assert_eq!(s["from"], "2026-09-21T19:00:00Z");
         assert_eq!(s["to"], "2026-09-21T19:30:10Z");
         assert_eq!(s["seconds"], 1810);
@@ -1012,7 +1120,7 @@ mod tests {
             .map(|(t, a, o)| (t.as_str(), *a, *o))
             .collect();
         let day = day_of(&[("2026-09-21-190000.gpx", track("one", &borrowed).as_str())]);
-        let drawn = day.drawing(12);
+        let drawn = day.drawing(Some(12), MAX_POINTS);
         let runs = drawn["runs"].as_array().unwrap();
         assert_eq!(runs.len(), 1);
         let line = runs[0].as_array().unwrap();
@@ -1021,7 +1129,7 @@ mod tests {
         assert_eq!(line[0].as_f64().unwrap(), 37.8);
         assert_eq!(line[line.len() - 2].as_f64().unwrap(), 37.8399);
         // Zoomed in, more of it is worth drawing than at a distance.
-        let close = day.drawing(18);
+        let close = day.drawing(Some(18), MAX_POINTS);
         assert!(close["drawn"].as_u64() >= drawn["drawn"].as_u64());
     }
 
@@ -1036,7 +1144,7 @@ mod tests {
         ]);
         assert_eq!(day.gaps().count(), 1);
         assert_eq!(day.gap_nm(), 0.0);
-        let drawn = day.drawing(15);
+        let drawn = day.drawing(Some(15), MAX_POINTS);
         assert!(drawn["gaps"].as_array().unwrap().is_empty());
     }
 
@@ -1064,6 +1172,71 @@ mod tests {
         assert_eq!(front_matter(note, "missing"), None);
         // Nothing to read out of a note with no front matter.
         assert_eq!(front_matter("boat: Dash\n", "boat"), None);
+    }
+
+    #[test]
+    fn a_passage_with_no_times_keeps_its_place_in_the_day() {
+        // An editor wrote this one out without its times. By the clock in
+        // its name it is the evening passage, not the day's first.
+        let morning = track("one", &[("2026-09-21T13:00:00Z", 37.80, -122.40)]);
+        let evening = "<trk><trkseg><trkpt lat=\"37.90\" lon=\"-122.40\"></trkpt></trkseg></trk>";
+        let day = day_of(&[
+            ("2026-09-21-060000.gpx", morning.as_str()),
+            ("2026-09-21-235900.gpx", evening),
+        ]);
+        let first = day.runs().next().unwrap().points[0];
+        assert_eq!(first.lat, 37.80);
+        assert_eq!(seconds_from_name("2026-09-21-114330.gpx"), Some(42_210));
+        assert_eq!(seconds_from_name("2026-09-21-1143.gpx"), Some(42_180));
+        assert_eq!(seconds_from_name("2026-09-21-noon.gpx"), None);
+        assert_eq!(seconds_from_name("2026-09-21-994330.gpx"), None);
+    }
+
+    #[test]
+    fn every_point_is_kept_with_no_zoom_asked_for() {
+        let mut points = Vec::new();
+        for i in 0..50 {
+            points.push((
+                format!("2026-09-21T19:00:{i:02}Z"),
+                37.80 + f64::from(i) * 0.0001,
+                -122.40 + f64::from(i % 3) * 0.0001,
+            ));
+        }
+        let borrowed: Vec<(&str, f64, f64)> = points
+            .iter()
+            .map(|(t, a, o)| (t.as_str(), *a, *o))
+            .collect();
+        let day = day_of(&[("2026-09-21-190000.gpx", track("one", &borrowed).as_str())]);
+        assert_eq!(day.drawing(None, MAX_POINTS)["drawn"], 50);
+        // A budget still bounds it, and the ends are never cut off.
+        let thinned = day.drawing(None, 10);
+        assert!(thinned["drawn"].as_u64().unwrap() <= 10);
+        let line = thinned["runs"][0].as_array().unwrap();
+        assert_eq!(line[0].as_f64().unwrap(), 37.8);
+        assert_eq!(line[line.len() - 2].as_f64().unwrap(), 37.8049);
+        assert_eq!(budget(1), MAX_POINTS);
+        assert_eq!(budget(100), 1200);
+        assert_eq!(budget(5000), MIN_POINTS);
+    }
+
+    #[test]
+    fn the_tracks_folder_is_found_when_it_appears() {
+        let dir = std::env::temp_dir().join(format!("omahelm-log-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let gpx = track("loose", &[("2026-09-20T19:00:00Z", 37.80, -122.40)]);
+        std::fs::write(dir.join("2026-09-20-120000.gpx"), &gpx).unwrap();
+        let mut log = Log::open(dir.clone());
+        // A folder of GPX files named straight at the setting.
+        assert_eq!(log.days().len(), 1);
+        // omalogbook writes its first passage after the engine started.
+        std::fs::create_dir_all(dir.join("tracks")).unwrap();
+        std::fs::write(dir.join("tracks/2026-09-21-120000.gpx"), &gpx).unwrap();
+        log.refresh();
+        assert_eq!(log.status(), "ok");
+        assert_eq!(log.days().len(), 1);
+        assert_eq!(log.days()[0].date, "2026-09-21");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
