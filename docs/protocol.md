@@ -124,6 +124,7 @@ rectangle a tile at a time.
 {"type":"trip","v":1,"id":7,"date":"2026-09-21","z":13,"drawn":249,
  "runs":[[37.866705,-122.313328,37.86662,-122.313227]],
  "gaps":[[37.869063,-122.450883,37.82839,-122.449358]],
+ "start":[37.866705,-122.313328],"end":[37.866817,-122.313303],
  "distanceNm":20.2,"gapNm":2.45,"holes":3,"passages":4,
  "bbox":{"west":-122.450883,"south":37.810592,
          "east":-122.313158,"north":37.880113},
@@ -135,6 +136,10 @@ rectangle a tile at a time.
   sailed, and a client must draw it so that the two can't be confused.
 - The day's other keys are the ones `trips` sends for it. `holes` is the
   count; `gaps` here are the lines across them.
+- `start` and `end` are the day's first and last recorded fix, as
+  `[lat, lon]`. They are named outright because a passage of a single fix
+  is no line and isn't sent, so the ends of `runs` are not always the
+  ends of the day. Absent from a day with nothing recorded.
 - `drawn` counts the points left after thinning. One answer carries at
   most 120,000 points, shared between the days in it, so a season asked
   for at close range is thinned harder rather than sent whole. A line is

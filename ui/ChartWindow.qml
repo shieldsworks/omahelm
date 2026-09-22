@@ -844,25 +844,39 @@ Item {
         calendarOpen = true;
     }
 
-    // The index and the lines are asked for together: the index is what
-    // the calendar marks, the lines are what the chart draws.
-    //
-    // A trip is not a forecast. It doesn't change as the hours pass, so
-    // it is asked for once a zoom level — a pan needs nothing, and the
-    // engine thins each day for the level it was asked at.
-    function requestTrips() {
+    // Two requests, asked for apart, because they go stale for different
+    // reasons. The index — what the calendar marks — is the same at every
+    // zoom, so a zoom never asks for it again; a season of days is a
+    // message worth not re-sending on every notch of the wheel.
+    function requestTripDays() {
         if (!tripsOn || !helm.connected) return;
         helm.send({type: "trips"});
+    }
+    // The lines are drawn for a zoom level, so they are asked for once a
+    // level. A pan needs nothing: a trip is not a forecast and doesn't
+    // change as the hours pass.
+    function requestTripLines() {
+        if (!tripsOn || !helm.connected) return;
         tripId += 1;
         tripsArriving = [];
         tripLevel = map.level;
         tripsMore = false;
         helm.send({type: "trip", id: tripId, z: map.level});
     }
-    Timer { id: tripsSettle; interval: 200; onTriggered: app.requestTrips() }
+    function requestTrips() {
+        requestTripDays();
+        requestTripLines();
+    }
+    // Only the lines settle: a zoom is a flurry of levels, and the index
+    // isn't asked for on that path at all.
+    Timer { id: tripsSettle; interval: 200; onTriggered: app.requestTripLines() }
     // However the layer came on — the key, the chip, or the view it was
-    // left in last time — it asks.
-    onTripsOnChanged: if (tripsOn) tripsSettle.restart();
+    // left in last time — it asks for both.
+    onTripsOnChanged: {
+        if (!tripsOn) return;
+        requestTripDays();
+        tripsSettle.restart();
+    }
     // Today's track is still being written while the layer is up.
     Timer {
         interval: 300000
@@ -900,7 +914,11 @@ Item {
             app.tripsArriving = [];
             app.tripsMore = m.more === true;
         }
-        function onConnectedChanged() { if (app.helm.connected && app.tripsOn) tripsSettle.restart(); }
+        function onConnectedChanged() {
+            if (!app.helm.connected || !app.tripsOn) return;
+            app.requestTripDays();
+            tripsSettle.restart();
+        }
     }
 
     // The day picked out: the chart goes to it, and following the boat

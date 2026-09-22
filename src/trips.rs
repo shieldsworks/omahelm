@@ -28,21 +28,22 @@ use std::time::SystemTime;
 const GAP_SECONDS: i64 = 90;
 /// Points a single day may be drawn with.
 const MAX_POINTS: usize = 4000;
-/// Points one answer may carry, shared between the days in it, and the
-/// fewest a day is ever given. A season asked for at close range would
-/// otherwise run to tens of megabytes down the socket and as many
-/// line segments through the window's canvas on every pan.
+/// Days one request may ask for.
+pub const MAX_DAYS: usize = 500;
+/// Points one answer may carry, shared between the days in it. A season
+/// asked for at close range would otherwise run to tens of megabytes down
+/// the socket and as many line segments through the window's canvas on
+/// every pan.
 pub const POINT_BUDGET: usize = 120_000;
-const MIN_POINTS: usize = 300;
+/// The fewest a day is ever given. It divides into the budget, so a full
+/// answer of the most days allowed still fits inside it.
+const MIN_POINTS: usize = POINT_BUDGET / MAX_DAYS;
 
 /// How many points each day may be drawn with when `days` of them answer
 /// one request.
 pub fn budget(days: usize) -> usize {
     (POINT_BUDGET / days.max(1)).clamp(MIN_POINTS, MAX_POINTS)
 }
-/// Days one request may ask for.
-pub const MAX_DAYS: usize = 500;
-
 /// A fix as the log wrote it. `epoch` is 0 for a point with no time, which
 /// GPX allows and some editors write.
 #[derive(Clone, Copy, Debug)]
@@ -182,7 +183,7 @@ impl Day {
         let (mut runs, mut gaps) = self.lines(tol);
         // A day that still won't fit is thinned harder rather than cut off
         // halfway, which would draw a trip that stops in open water.
-        while count(&runs) > max_points && tol < 1.0 {
+        while count(&runs) + count(&gaps) > max_points && tol < 1.0 {
             // Thinning nothing four times over is still nothing.
             tol = if tol > 0.0 { tol * 4.0 } else { tolerance(22) };
             let next = self.lines(tol);
@@ -192,6 +193,16 @@ impl Day {
         let mut v = self.summary();
         if let Some(z) = z {
             v["z"] = json!(z);
+        }
+        // The ends are named outright. A run of a single fix is no line
+        // and isn't sent, so the first and last of what is drawn are not
+        // always where the day began and ended.
+        let point = |p: &Point| json!([round(p.lat, 6), round(p.lon, 6)]);
+        if let Some(p) = self.runs().next().and_then(|l| l.points.first()) {
+            v["start"] = point(p);
+        }
+        if let Some(p) = self.runs().last().and_then(|l| l.points.last()) {
+            v["end"] = point(p);
         }
         v["drawn"] = json!(count(&runs));
         v["runs"] = json!(runs);
@@ -251,13 +262,12 @@ impl Day {
             format_nm(self.run_nm() + self.gap_nm()),
         ));
         out.push_str("    <trkseg>\n");
-        let mut last: Option<Point> = None;
-        for leg in &self.legs {
+        // The runs alone. A gap's ends are the runs' own points, and two
+        // runs written one after the other are the straight line across
+        // it — so nothing is dropped, and a night at anchor keeps every
+        // fix it recorded.
+        for leg in self.runs() {
             for p in &leg.points {
-                // A gap's ends are the runs' own points, already written.
-                if last.is_some_and(|l| l == *p) {
-                    continue;
-                }
                 out.push_str(&format!(
                     "      <trkpt lat=\"{:.6}\" lon=\"{:.6}\">\n",
                     p.lat, p.lon
@@ -266,7 +276,6 @@ impl Day {
                     out.push_str(&format!("        <time>{}</time>\n", iso_utc(p.epoch)));
                 }
                 out.push_str("      </trkpt>\n");
-                last = Some(*p);
             }
         }
         out.push_str("    </trkseg>\n  </trk>\n</gpx>\n");
@@ -1149,6 +1158,49 @@ mod tests {
     }
 
     #[test]
+    fn the_export_keeps_every_fix_it_was_given() {
+        // Lying at anchor writes the same position over and over. Those
+        // are fixes, not repeats to be tidied away.
+        let still = track(
+            "one",
+            &[
+                ("2026-09-21T19:00:00Z", 37.80, -122.40),
+                ("2026-09-21T19:00:10Z", 37.80, -122.40),
+                ("2026-09-21T19:00:20Z", 37.80, -122.40),
+                ("2026-09-21T19:00:30Z", 37.81, -122.40),
+                ("2026-09-21T19:00:40Z", 37.81, -122.40),
+            ],
+        );
+        let day = day_of(&[("2026-09-21-190000.gpx", still.as_str())]);
+        let gpx = day.gpx("Dash");
+        assert_eq!(gpx.matches("<trkpt").count(), 5);
+        // The track ends where the day does.
+        assert!(gpx.contains("2026-09-21T19:00:40Z"), "{gpx}");
+        assert_eq!(day.summary()["to"], "2026-09-21T19:00:40Z");
+    }
+
+    #[test]
+    fn the_ends_are_named_even_when_a_passage_is_one_fix() {
+        let first = track(
+            "one",
+            &[
+                ("2026-09-21T19:00:00Z", 37.80, -122.40),
+                ("2026-09-21T19:00:10Z", 37.81, -122.40),
+            ],
+        );
+        // The receiver dropped straight after mooring: one fix, no line.
+        let last = track("two", &[("2026-09-21T20:00:00Z", 37.90, -122.40)]);
+        let day = day_of(&[
+            ("2026-09-21-190000.gpx", first.as_str()),
+            ("2026-09-21-200000.gpx", last.as_str()),
+        ]);
+        let drawn = day.drawing(Some(14), MAX_POINTS);
+        assert_eq!(drawn["runs"].as_array().unwrap().len(), 1);
+        assert_eq!(drawn["start"], json!([37.8, -122.4]));
+        assert_eq!(drawn["end"], json!([37.9, -122.4]));
+    }
+
+    #[test]
     fn the_export_is_one_segment_and_says_what_was_filled() {
         let first = track("one", &[("2026-09-21T19:00:00Z", 37.80, -122.40)]);
         let second = track("two", &[("2026-09-21T19:30:00Z", 37.83, -122.40)]);
@@ -1217,6 +1269,8 @@ mod tests {
         assert_eq!(budget(1), MAX_POINTS);
         assert_eq!(budget(100), 1200);
         assert_eq!(budget(5000), MIN_POINTS);
+        // The most days allowed, each at the floor, still fit the budget.
+        assert!(budget(MAX_DAYS) * MAX_DAYS <= POINT_BUDGET);
     }
 
     #[test]

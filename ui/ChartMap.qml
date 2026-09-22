@@ -666,17 +666,17 @@ Item {
                 if (ctx.setLineDash) ctx.setLineDash([]);
             }
             // Where the day began and where it ended: a hollow ring for
-            // the start, a filled dot for the finish.
-            var first = picked.runs.length ? picked.runs[0] : null;
-            var last = picked.runs.length ? picked.runs[picked.runs.length - 1] : null;
-            if (!first) {
+            // the start, a filled dot for the finish. The engine names
+            // them, because a passage of a single fix is no line and
+            // never reaches us.
+            var ends = [picked.start, picked.end];
+            if (!ends[0] || !ends[1]) {
                 ctx.globalAlpha = 1;
                 return;
             }
             ctx.globalAlpha = 1;
             for (var m = 0; m < 2; m++) {
-                var mark = m === 0 ? [sx(first[1]), sy(first[0])]
-                    : [sx(last[last.length - 1]), sy(last[last.length - 2])];
+                var mark = [sx(ends[m][1]), sy(ends[m][0])];
                 ctx.strokeStyle = String(halo);
                 ctx.lineWidth = 3;
                 ctx.beginPath();

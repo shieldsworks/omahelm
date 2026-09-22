@@ -19,7 +19,16 @@ Rectangle {
 
     signal picked(string date)
 
-    readonly property string today: Qt.formatDate(new Date(), "yyyy-MM-dd")
+    // The day turns while the window is open — this one is left running
+    // for weeks — so today is read from the clock, not from startup.
+    property string today: Qt.formatDate(new Date(), "yyyy-MM-dd")
+    property Timer clock: Timer {
+        interval: 60000
+        repeat: true
+        triggeredOnStart: true
+        running: calendar.visible
+        onTriggered: calendar.today = Qt.formatDate(new Date(), "yyyy-MM-dd")
+    }
     readonly property var byDate: {
         var out = ({});
         for (var i = 0; i < days.length; i++) {
@@ -187,20 +196,20 @@ Rectangle {
                             : !cell.modelData.inMonth ? Qt.alpha(calendar.theme.foreground, 0.3)
                             : cell.day ? calendar.theme.foreground : Qt.alpha(calendar.theme.foreground, 0.55)
                     }
-                    // A day with a track is marked, and the one on the
-                    // chart is marked solid.
+                    // A day with a track is marked, the day on the chart
+                    // more heavily. The cursor's own cell is filled with
+                    // the accent, so its mark is cut out of it — an
+                    // accent dot on an accent square is no mark at all.
                     Rectangle {
                         visible: !!cell.day
                         anchors.horizontalCenter: parent.horizontalCenter
-                        y: parent.height - 8
-                        width: 5
-                        height: 5
-                        radius: 2.5
-                        color: calendar.selected === cell.modelData.at ? calendar.theme.accent
-                            : calendar.cursor === cell.modelData.at ? calendar.theme.background
-                            : Qt.alpha(calendar.theme.accent, 0.7)
-                        border.width: calendar.selected === cell.modelData.at ? 0 : 1
-                        border.color: calendar.theme.accent
+                        y: parent.height - 9
+                        width: calendar.selected === cell.modelData.at ? 6 : 4
+                        height: width
+                        radius: width / 2
+                        color: calendar.cursor === cell.modelData.at ? calendar.theme.background
+                            : Qt.alpha(calendar.theme.accent,
+                                       calendar.selected === cell.modelData.at ? 1 : 0.75)
                     }
                     MouseArea {
                         anchors.fill: parent
@@ -241,9 +250,11 @@ Rectangle {
                 var d = calendar.here;
                 if (!d || typeof d.from !== "string") return "";
                 var from = new Date(d.from), to = new Date(d.to);
-                var hours = Math.floor((d.seconds || 0) / 3600), minutes = Math.round(((d.seconds || 0) % 3600) / 60);
+                // Rounded to the minute first: halves and sixties don't
+                // add up to "4 h 60 min".
+                var mins = Math.round((d.seconds || 0) / 60);
                 return Qt.formatDateTime(from, "HH:mm") + "–" + Qt.formatDateTime(to, "HH:mm")
-                    + "   " + hours + " h " + minutes + " min";
+                    + "   " + Math.floor(mins / 60) + " h " + (mins % 60) + " min";
             }
             color: Qt.alpha(calendar.theme.foreground, 0.7)
             font.pixelSize: calendar.theme.baseSize - 1

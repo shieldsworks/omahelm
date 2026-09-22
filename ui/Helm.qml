@@ -86,7 +86,13 @@ QtObject {
                 && l.every((n, i) => typeof n === "number" && isFinite(n)
                     && (i % 2 ? n >= -180 && n <= 180 : n >= -90 && n <= 90)));
         }
-        return Object.assign({}, m, {runs: lines(m.runs), gaps: lines(m.gaps)});
+        function end(v) {
+            return Array.isArray(v) && v.length === 2
+                && v.every(n => typeof n === "number" && isFinite(n))
+                && v[0] >= -90 && v[0] <= 90 && v[1] >= -180 && v[1] <= 180 ? v : undefined;
+        }
+        return Object.assign({}, m, {runs: lines(m.runs), gaps: lines(m.gaps),
+                                     start: end(m.start), end: end(m.end)});
     }
 
     // `<z>/<x>/<y>@<scale>.png`, nothing else: a path can't climb out of
