@@ -1,5 +1,3 @@
-//! What the integration tests share: the fixture charts, opened from a copy.
-
 use omahelm::library::Library;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};

@@ -1,12 +1,3 @@
-//! Chart tiles drawn from the fixture cells, byte for byte as the engine
-//! writes them to its cache, against `tests/golden/`. `mise bless` redraws
-//! them on purpose.
-
-#![allow(
-    clippy::unwrap_used,
-    reason = "a tests/*.rs file is a crate of its own; allow-unwrap-in-tests covers its #[test] fns, not their helpers"
-)]
-
 mod common;
 
 use common::{Charts, fixtures};
@@ -21,9 +12,6 @@ enum Look {
     Night,
 }
 
-/// One golden tile: `tests/golden/<name>.png` is the tile `key` at two
-/// device pixels per logical pixel, drawn in `look` with the default
-/// settings, exactly as the engine writes it to its cache.
 struct Golden {
     name: &'static str,
     key: TileKey,
@@ -35,7 +23,6 @@ const fn tile(z: u32, x: u32, y: u32) -> TileKey {
 }
 
 const GOLDENS: &[Golden] = &[
-    // Berkeley Marina's entrance: lateral marks, lights, soundings, the breakwater.
     Golden {
         name: "berkeley-breakwater-paper",
         key: tile(15, 5250, 12654),
@@ -46,7 +33,6 @@ const GOLDENS: &[Golden] = &[
         key: tile(15, 5250, 12654),
         look: Look::Night,
     },
-    // Alcatraz, from US5OAKFG with its two updates applied.
     Golden {
         name: "alcatraz-paper",
         key: tile(14, 2620, 6329),
@@ -54,7 +40,6 @@ const GOLDENS: &[Golden] = &[
     },
 ];
 
-/// The `render::VERSION` the goldens were drawn at.
 const VERSION_FILE: &str = "render-version.txt";
 
 fn golden_dir() -> PathBuf {
@@ -83,7 +68,6 @@ fn rgb(png: &[u8]) -> Option<Vec<u8>> {
     Some(buf)
 }
 
-/// How far a drawn tile is from its golden, for the failure message.
 fn difference(golden: &[u8], drawn: &[u8]) -> String {
     match (rgb(golden), rgb(drawn)) {
         (Some(a), Some(b)) if a.len() == b.len() => {
@@ -106,15 +90,12 @@ fn difference(golden: &[u8], drawn: &[u8]) -> String {
     }
 }
 
-/// A case against its committed golden.
 enum State {
     Same,
     Changed(String),
     New,
 }
 
-/// What `tests/golden/` holds, against what the renderer draws now. Read
-/// only: `bless` is the one writer, `problems` the check.
 struct Survey {
     recorded: Option<u32>,
     cases: Vec<(&'static Golden, Vec<u8>, State)>,
@@ -124,7 +105,8 @@ struct Survey {
 fn survey() -> Survey {
     let charts = Charts::open();
     let font_file = fixtures().join("fonts/DejaVuSansMono.ttf");
-    let font = Font::open(font_file.to_str().unwrap()).expect("the pinned font");
+    let font =
+        Font::open(font_file.to_str().expect("the font path is utf-8")).expect("the pinned font");
     let dir = golden_dir();
     let cases = GOLDENS
         .iter()
@@ -148,7 +130,10 @@ fn survey() -> Survey {
         .flatten()
         .flatten()
         .map(|e| e.path())
-        .filter(|p| !expected.contains(&p.file_name().unwrap().to_string_lossy().into_owned()))
+        .filter(|p| {
+            let name = p.file_name().expect("a directory entry has a name");
+            !expected.contains(&name.to_string_lossy().into_owned())
+        })
         .collect();
     let recorded = std::fs::read_to_string(dir.join(VERSION_FILE))
         .ok()
@@ -160,8 +145,6 @@ fn survey() -> Survey {
     }
 }
 
-/// Makes `tests/golden/` exactly what the renderer draws now, or says why
-/// it won't. Running it twice changes nothing the second time.
 fn bless(s: &Survey) -> Result<(), String> {
     let changed: Vec<&str> = s
         .cases
@@ -191,8 +174,6 @@ fn bless(s: &Survey) -> Result<(), String> {
         .map_err(|e| e.to_string())
 }
 
-/// Everything that keeps `tests/golden/` from matching, one line each. A
-/// changed tile is also written to the temp dir, to look at.
 fn problems(s: &Survey) -> Vec<String> {
     let mut out = Vec::new();
     if s.recorded != Some(render::VERSION) {

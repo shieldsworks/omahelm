@@ -50,7 +50,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false
-      # Qt 6.8.2's qmllint, from PySide6, at the version the suite measured.
       # Quickshell's modules aren't installed, so its import, type, property
       # and unqualified warnings are noise and stay off. The rest fails.
       - name: qmllint
