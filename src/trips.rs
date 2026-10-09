@@ -487,11 +487,11 @@ pub fn iso_utc(epoch: i64) -> String {
 
 /// A moment in the machine's own zone, or nothing when it can't be read.
 fn local(epoch: i64) -> Option<libc::tm> {
-    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    let mut tm = std::mem::MaybeUninit::<libc::tm>::uninit();
     let t = epoch as libc::time_t;
-    // SAFETY: localtime_r fills the caller's tm and touches nothing else.
-    let filled = unsafe { libc::localtime_r(&t, &mut tm) };
-    (!filled.is_null()).then_some(tm)
+    // SAFETY: localtime_r writes only the tm it is given and returns a
+    // pointer to it once every field is filled, or null on failure.
+    unsafe { libc::localtime_r(&t, tm.as_mut_ptr()).as_ref().copied() }
 }
 
 /// The local date of a moment, `YYYY-MM-DD`: the day a sailor would file
@@ -980,6 +980,21 @@ mod tests {
         let segments = parse_gpx(text);
         assert_eq!(segments[0].len(), 1);
         assert_eq!(segments[0][0].lat, 1.0);
+    }
+
+    #[test]
+    fn local_time_names_the_same_instant() {
+        for epoch in [0, 1_790_000_000, 1_774_000_000, -86_400] {
+            let tm = local(epoch).unwrap();
+            let day = days_from_civil(
+                i64::from(tm.tm_year) + 1900,
+                i64::from(tm.tm_mon) + 1,
+                i64::from(tm.tm_mday),
+            );
+            let clock =
+                i64::from(tm.tm_hour) * 3600 + i64::from(tm.tm_min) * 60 + i64::from(tm.tm_sec);
+            assert_eq!(day * 86_400 + clock - tm.tm_gmtoff, epoch);
+        }
     }
 
     #[test]

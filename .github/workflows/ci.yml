@@ -37,9 +37,24 @@ jobs:
             ~/.cargo/git
             target
           key: rust-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'mise.toml') }}
-      - name: Lint
-        run: mise lint
-      - name: Test
-        run: mise test
+      - name: Verify
+        run: scripts/verify.sh
       - name: Release build
         run: cargo build --release --locked
+
+  qml:
+    name: qmllint
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      # Quickshell's modules aren't installed, so its import, type, property
+      # and unqualified warnings are noise and stay off. The rest fails.
+      - name: qmllint
+        run: |
+          python3 -m pip install --quiet --target "$RUNNER_TEMP/qt" PySide6-Essentials==6.8.2
+          "$RUNNER_TEMP/qt/PySide6/qmllint" --max-warnings 0 \
+            --import disable --unresolved-type disable \
+            --missing-property disable --unqualified disable ui/*.qml
