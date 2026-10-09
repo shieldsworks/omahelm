@@ -9,8 +9,16 @@ description = "Release build (the chart engine is slow unoptimized)"
 run = "cargo build --release --locked"
 
 [tasks.test]
-description = "Unit tests and the chart fixtures"
+description = "Unit tests, the chart fixtures and the golden tiles"
 run = "cargo test --locked"
+
+[tasks.goldens]
+description = "Only the golden tiles, byte for byte against tests/golden/"
+run = "cargo test --locked --test goldens"
+
+[tasks.bless]
+description = "Redraw tests/golden/*.png on purpose; the PR says what changed visibly"
+run = "BLESS=1 cargo test --locked --test goldens"
 
 [tasks.lint]
 description = "rustfmt check and clippy with warnings denied"

@@ -5,16 +5,13 @@
     reason = "a tests/*.rs file is a crate of its own; allow-unwrap-in-tests covers its #[test] fns, not their helpers"
 )]
 
-use omahelm::library::Library;
+mod common;
+
+use common::{Charts, fixtures};
 use omahelm::render::{self, Style, TileKey};
 use omahelm::s57::{self, Cell, Geometry};
 use omahelm::style::{Palette, Settings};
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
-
-fn fixtures() -> PathBuf {
-    Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures")
-}
 
 /// Object class → (features, vertices), as `gdaldump.py` counts them.
 fn counts(cell: &Cell) -> BTreeMap<String, (usize, usize)> {
@@ -97,20 +94,8 @@ fn berkeley_breakwater_light_reads_as_charted() {
 
 #[test]
 fn a_harbor_tile_draws_chart_not_blank() {
-    let tmp = std::env::temp_dir().join(format!("omahelm-tile-{}", std::process::id()));
-    let _ = std::fs::remove_dir_all(&tmp);
-    std::fs::create_dir_all(tmp.join("ENC_ROOT")).unwrap();
-    for cell in ["US5OAKFI", "US5OAKFG"] {
-        let dst = tmp.join("ENC_ROOT").join(cell);
-        std::fs::create_dir_all(&dst).unwrap();
-        for e in std::fs::read_dir(fixtures().join("ENC_ROOT").join(cell))
-            .unwrap()
-            .flatten()
-        {
-            std::fs::copy(e.path(), dst.join(e.file_name())).unwrap();
-        }
-    }
-    let lib = Library::open(&tmp, &|_, _| {});
+    let charts = Charts::open();
+    let lib = &charts.lib;
     assert_eq!(lib.entries.len(), 2);
     let style = Style {
         palette: Palette::paper(),
@@ -124,7 +109,7 @@ fn a_harbor_tile_draws_chart_not_blank() {
         y: (my * 32768.0) as u32,
         scale: 1,
     };
-    let pm = render::render(&lib, &style, None, key).unwrap();
+    let pm = render::render(lib, &style, None, key).unwrap();
     let mut colors = std::collections::HashSet::new();
     for px in pm.data().as_chunks::<4>().0 {
         colors.insert([px[0], px[1], px[2]]);
@@ -135,5 +120,4 @@ fn a_harbor_tile_draws_chart_not_blank() {
     assert!(colors.contains(&[land.0, land.1, land.2]));
     let png = render::png(&pm).unwrap();
     assert_eq!(&png[1..4], b"PNG");
-    std::fs::remove_dir_all(&tmp).unwrap();
 }

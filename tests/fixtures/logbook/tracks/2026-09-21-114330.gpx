@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="omalogbook" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Out of Berkeley</name>
+    <trkseg>
+      <trkpt lat="37.866705" lon="-122.313328"><time>2026-09-21T18:43:30Z</time></trkpt>
+      <trkpt lat="37.867108" lon="-122.315114"><time>2026-09-21T18:44:00Z</time></trkpt>
+      <trkpt lat="37.867510" lon="-122.316900"><time>2026-09-21T18:44:30Z</time></trkpt>
+      <trkpt lat="37.867913" lon="-122.318686"><time>2026-09-21T18:45:00Z</time></trkpt>
+      <trkpt lat="37.868315" lon="-122.320472"><time>2026-09-21T18:45:30Z</time></trkpt>
+      <trkpt lat="37.867795" lon="-122.322942"><time>2026-09-21T18:46:00Z</time></trkpt>
+      <trkpt lat="37.867276" lon="-122.325413"><time>2026-09-21T18:46:30Z</time></trkpt>
+      <trkpt lat="37.866756" lon="-122.327883"><time>2026-09-21T18:47:00Z</time></trkpt>
+      <trkpt lat="37.866236" lon="-122.330354"><time>2026-09-21T18:47:30Z</time></trkpt>
+      <trkpt lat="37.865717" lon="-122.332825"><time>2026-09-21T18:48:00Z</time></trkpt>
+      <trkpt lat="37.865197" lon="-122.335295"><time>2026-09-21T18:48:30Z</time></trkpt>
+      <trkpt lat="37.864677" lon="-122.337766"><time>2026-09-21T18:49:00Z</time></trkpt>
+      <trkpt lat="37.864158" lon="-122.340236"><time>2026-09-21T18:49:30Z</time></trkpt>
+      <trkpt lat="37.863638" lon="-122.342706"><time>2026-09-21T18:50:00Z</time></trkpt>
+      <trkpt lat="37.863118" lon="-122.345177"><time>2026-09-21T18:50:30Z</time></trkpt>
+      <trkpt lat="37.862598" lon="-122.347647"><time>2026-09-21T18:51:00Z</time></trkpt>
+      <trkpt lat="37.862079" lon="-122.350118"><time>2026-09-21T18:51:30Z</time></trkpt>
+      <trkpt lat="37.861559" lon="-122.352588"><time>2026-09-21T18:52:00Z</time></trkpt>
+      <trkpt lat="37.861039" lon="-122.355059"><time>2026-09-21T18:52:30Z</time></trkpt>
+      <trkpt lat="37.860520" lon="-122.357529"><time>2026-09-21T18:53:00Z</time></trkpt>
+      <trkpt lat="37.860000" lon="-122.360000"><time>2026-09-21T18:53:30Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>

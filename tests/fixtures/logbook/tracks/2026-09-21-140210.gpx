@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<gpx version="1.1" creator="omalogbook" xmlns="http://www.topografix.com/GPX/1/1">
+  <trk>
+    <name>Home past Alcatraz</name>
+    <trkseg>
+      <trkpt lat="37.840000" lon="-122.380000"><time>2026-09-21T21:02:10Z</time></trkpt>
+      <trkpt lat="37.841117" lon="-122.377221"><time>2026-09-21T21:02:40Z</time></trkpt>
+      <trkpt lat="37.842235" lon="-122.374442"><time>2026-09-21T21:03:10Z</time></trkpt>
+      <trkpt lat="37.843352" lon="-122.371663"><time>2026-09-21T21:03:40Z</time></trkpt>
+      <trkpt lat="37.844470" lon="-122.368884"><time>2026-09-21T21:04:10Z</time></trkpt>
+      <trkpt lat="37.845587" lon="-122.366105"><time>2026-09-21T21:04:40Z</time></trkpt>
+      <trkpt lat="37.846704" lon="-122.363326"><time>2026-09-21T21:05:10Z</time></trkpt>
+      <trkpt lat="37.847822" lon="-122.360547"><time>2026-09-21T21:05:40Z</time></trkpt>
+      <trkpt lat="37.848939" lon="-122.357768"><time>2026-09-21T21:06:10Z</time></trkpt>
+      <trkpt lat="37.850056" lon="-122.354989"><time>2026-09-21T21:06:40Z</time></trkpt>
+      <trkpt lat="37.851174" lon="-122.352210"><time>2026-09-21T21:07:10Z</time></trkpt>
+      <trkpt lat="37.852291" lon="-122.349431"><time>2026-09-21T21:07:40Z</time></trkpt>
+      <trkpt lat="37.853409" lon="-122.346652"><time>2026-09-21T21:08:10Z</time></trkpt>
+      <trkpt lat="37.854526" lon="-122.343872"><time>2026-09-21T21:08:40Z</time></trkpt>
+      <trkpt lat="37.855643" lon="-122.341093"><time>2026-09-21T21:09:10Z</time></trkpt>
+      <trkpt lat="37.856761" lon="-122.338314"><time>2026-09-21T21:09:40Z</time></trkpt>
+      <trkpt lat="37.857878" lon="-122.335535"><time>2026-09-21T21:10:10Z</time></trkpt>
+      <trkpt lat="37.858995" lon="-122.332756"><time>2026-09-21T21:10:40Z</time></trkpt>
+      <trkpt lat="37.860113" lon="-122.329977"><time>2026-09-21T21:11:10Z</time></trkpt>
+      <trkpt lat="37.861230" lon="-122.327198"><time>2026-09-21T21:11:40Z</time></trkpt>
+      <trkpt lat="37.862347" lon="-122.324419"><time>2026-09-21T21:12:10Z</time></trkpt>
+      <trkpt lat="37.863465" lon="-122.321640"><time>2026-09-21T21:12:40Z</time></trkpt>
+      <trkpt lat="37.864582" lon="-122.318861"><time>2026-09-21T21:13:10Z</time></trkpt>
+      <trkpt lat="37.865700" lon="-122.316082"><time>2026-09-21T21:13:40Z</time></trkpt>
+      <trkpt lat="37.866817" lon="-122.313303"><time>2026-09-21T21:14:10Z</time></trkpt>
+    </trkseg>
+  </trk>
+</gpx>
