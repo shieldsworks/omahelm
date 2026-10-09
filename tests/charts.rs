@@ -1,5 +1,10 @@
 //! The reader and renderer against real NOAA cells (tests/fixtures).
 
+#![allow(
+    clippy::unwrap_used,
+    reason = "a tests/*.rs file is a crate of its own; allow-unwrap-in-tests covers its #[test] fns, not their helpers"
+)]
+
 use omahelm::library::Library;
 use omahelm::render::{self, Style, TileKey};
 use omahelm::s57::{self, Cell, Geometry};

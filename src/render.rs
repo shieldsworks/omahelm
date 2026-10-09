@@ -419,7 +419,10 @@ impl Canvas<'_> {
         PathBuilder::from_circle(at.0, at.1, r * self.s)
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[expect(
+        clippy::too_many_arguments,
+        reason = "every label on the chart sets all seven, so a struct would be rebuilt at each call"
+    )]
     fn text(
         &mut self,
         text: &str,

@@ -1,7 +1,5 @@
 //! Object class and attribute codes used by name in omahelm.
 
-#![allow(dead_code)]
-
 // Object classes.
 pub const MAGVAR: u16 = 81;
 pub const ACHARE: u16 = 4;

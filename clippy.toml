@@ -1,0 +1,4 @@
+# Tests may unwrap and use dbg!: a panic is how a test fails. The MSRV is
+# Cargo.toml's rust-version, which clippy reads.
+allow-unwrap-in-tests = true
+allow-dbg-in-tests = true
