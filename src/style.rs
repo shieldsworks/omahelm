@@ -251,15 +251,11 @@ pub fn read_theme(path: &Path) -> HashMap<String, Rgb> {
     out
 }
 
-pub fn theme_path() -> PathBuf {
+pub fn theme_path() -> Result<PathBuf, String> {
     if let Ok(dir) = std::env::var("OMAHELM_THEME_DIR") {
-        return PathBuf::from(dir).join("colors.toml");
+        return Ok(PathBuf::from(dir).join("colors.toml"));
     }
-    home().join(".local/state/omarchy/current/theme/colors.toml")
-}
-
-pub fn home() -> PathBuf {
-    PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| "/".into()))
+    Ok(crate::paths::home()?.join(".local/state/omarchy/current/theme/colors.toml"))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -424,14 +420,13 @@ impl Settings {
     }
 }
 
-pub fn config_path() -> PathBuf {
+pub fn config_path() -> Result<PathBuf, String> {
     if let Ok(p) = std::env::var("OMAHELM_CONFIG") {
-        return PathBuf::from(p);
+        return Ok(PathBuf::from(p));
     }
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| home().join(".config"));
-    base.join("omahelm/config.toml")
+    Ok(crate::paths::Xdg::Config
+        .base()?
+        .join("omahelm/config.toml"))
 }
 
 #[cfg(test)]

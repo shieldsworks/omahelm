@@ -165,6 +165,7 @@ particular:
 - `src/text.rs`: glyph outlines from a font file (`OMAHELM_FONT`, then
   fontconfig), filled as paths
 - `src/marks.rs`: chart notation for lights, buoys, bottoms and colors
+- `src/paths.rs`: `HOME` and the XDG base directories
 - `src/chart.rs`: a cell projected to Web Mercator, ready to draw
 - `src/library.rs`: the charts on disk: `index.json` and a cache of cells
 - `src/fetch.rs`: NOAA downloads, and `import` of zips and folders

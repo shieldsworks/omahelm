@@ -57,14 +57,11 @@ pub struct Library {
     cache: Mutex<Vec<(String, Arc<Chart>)>>,
 }
 
-pub fn default_root() -> PathBuf {
+pub fn default_root() -> Result<PathBuf, String> {
     if let Ok(p) = std::env::var("OMAHELM_CHARTS") {
-        return PathBuf::from(p);
+        return Ok(PathBuf::from(p));
     }
-    let base = std::env::var("XDG_DATA_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| crate::style::home().join(".local/share"));
-    base.join("omahelm/charts")
+    Ok(crate::paths::Xdg::Data.base()?.join("omahelm/charts"))
 }
 
 /// Every base cell (`*.000`) under a directory.

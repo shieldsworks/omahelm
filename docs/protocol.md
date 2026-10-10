@@ -6,9 +6,11 @@ writes tiles as PNG files and names them.
 
 ## Transport
 
-- A Unix stream socket, `$XDG_RUNTIME_DIR/omahelm/helm.sock`. The directory
-  is created with mode 0700. A lock file beside it (`helm.sock.lock`) keeps a
-  second engine from starting; a socket left by a crashed engine is replaced.
+- A Unix stream socket, `$XDG_RUNTIME_DIR/omahelm/helm.sock`.
+  `XDG_RUNTIME_DIR` must be an absolute path. The engine does not
+  substitute another directory. The directory is created with mode 0700.
+  A lock file beside it (`helm.sock.lock`) keeps a second engine from
+  starting; a socket left by a crashed engine is replaced.
 - Newline-delimited JSON, UTF-8, one object per line.
 - Every engine message has `"type"` and `"v": 1`. A client that sees another
   `v` shows an error and stops using the engine.
@@ -208,6 +210,10 @@ within about 10 logical pixels, and the areas that contain the point.
   deleted when the engine starts.
 - Settings: `$XDG_CONFIG_HOME/omahelm/config.toml`. The engine re-reads it,
   and the Omarchy theme's `colors.toml`, when they change.
+- `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME` count only when
+  the value is absolute. Otherwise the bases are `$HOME/.config`,
+  `$HOME/.cache`, and `$HOME/.local/share`. An unset `HOME` is an error
+  when a path uses it.
 - Tracks: `<logbook>/tracks/*.gpx`, written by
   [omalogbook](https://github.com/shieldsworks/omalogbook) and only read
   here. The folder is the `logbook` setting, else the `vault` omalogbook
