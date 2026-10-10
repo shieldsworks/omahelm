@@ -205,17 +205,14 @@ impl Engine {
     /// The logbook, opened afresh when the setting points somewhere else
     /// and re-read when its files have changed.
     fn with_log<T>(&self, f: impl FnOnce(&mut Log) -> T) -> Result<T, String> {
-        let configured = self
-            .view
-            .read()
-            .expect("view lock")
+        let configured = crate::guard(self.view.read())
             .day
             .style
             .settings
             .logbook
             .clone();
         let wanted = trips::default_vault(configured.as_deref())?;
-        let mut log = self.log.lock().expect("log lock");
+        let mut log = crate::guard(self.log.lock());
         if log.vault() == wanted {
             log.refresh();
         } else {
@@ -225,7 +222,7 @@ impl Engine {
     }
 
     fn state(&self) -> String {
-        let view = self.view.read().expect("view lock").clone();
+        let view = crate::guard(self.view.read()).clone();
         let lib = &view.library;
         let set = &view.day.style.settings;
         let u = set.units;
@@ -269,7 +266,7 @@ impl Engine {
     }
 
     fn send(&self, client: u64, line: String) {
-        let mut clients = self.clients.lock().expect("clients lock");
+        let mut clients = crate::guard(self.clients.lock());
         if let Some(i) = clients.iter().position(|c| c.id == client)
             && let Err(TrySendError::Full(_)) = clients[i].tx.try_send(line)
         {
@@ -280,10 +277,7 @@ impl Engine {
     }
 
     fn broadcast(&self, line: String) {
-        let ids: Vec<u64> = self
-            .clients
-            .lock()
-            .expect("clients lock")
+        let ids: Vec<u64> = crate::guard(self.clients.lock())
             .iter()
             .map(|c| c.id)
             .collect();
@@ -293,8 +287,8 @@ impl Engine {
     }
 
     fn set_view(&self, view: View) {
-        let old = std::mem::replace(&mut *self.view.write().expect("view lock"), Arc::new(view));
-        let new = self.view.read().expect("view lock").clone();
+        let old = std::mem::replace(&mut *crate::guard(self.view.write()), Arc::new(view));
+        let new = crate::guard(self.view.read()).clone();
         if old.day.generation != new.day.generation || old.night.generation != new.night.generation
         {
             prune(
@@ -307,9 +301,7 @@ impl Engine {
                 ],
             );
             // Queued tiles of an old look are no use to anyone.
-            self.queue
-                .lock()
-                .expect("queue lock")
+            crate::guard(self.queue.lock())
                 .retain(|j| j.generation == new.look(j.night).generation);
         }
         self.broadcast(self.state());
@@ -523,11 +515,11 @@ fn spawn_indexer(engine: &Arc<Engine>) {
     std::thread::spawn(move || {
         let last = Mutex::new(Instant::now());
         let lib = Library::open(&e.charts, &|done, total| {
-            let mut last = last.lock().expect("progress lock");
+            let mut last = crate::guard(last.lock());
             if last.elapsed() > Duration::from_millis(250) {
                 *last = Instant::now();
                 // The charts already on show stay until the new index is ready.
-                let current = e.view.read().expect("view lock").library.clone();
+                let current = crate::guard(e.view.read()).library.clone();
                 let v = e.make_view(current, Some((done, total)));
                 e.set_view(v);
             }
@@ -551,14 +543,14 @@ fn watcher(engine: &Arc<Engine>) {
             if charts_changed {
                 spawn_indexer(engine);
             } else {
-                let lib = engine.view.read().expect("view lock").library.clone();
+                let lib = crate::guard(engine.view.read()).library.clone();
                 let v = engine.make_view(lib, None);
                 engine.set_view(v);
             }
         }
-        let idle = engine.busy.lock().expect("busy lock").elapsed() > IDLE;
+        let idle = crate::guard(engine.busy.lock()).elapsed() > IDLE;
         if idle {
-            engine.view.read().expect("view lock").library.forget();
+            crate::guard(engine.view.read()).library.forget();
         }
     }
 }
@@ -566,16 +558,16 @@ fn watcher(engine: &Arc<Engine>) {
 fn worker(engine: &Arc<Engine>) {
     loop {
         let job = {
-            let mut q = engine.queue.lock().expect("queue lock");
+            let mut q = crate::guard(engine.queue.lock());
             loop {
                 if let Some(j) = q.pop_front() {
                     break j;
                 }
-                q = engine.ready.wait(q).expect("queue lock");
+                q = crate::guard(engine.ready.wait(q));
             }
         };
-        *engine.busy.lock().expect("busy lock") = Instant::now();
-        let view = engine.view.read().expect("view lock").clone();
+        *crate::guard(engine.busy.lock()) = Instant::now();
+        let view = crate::guard(engine.view.read()).clone();
         let look = view.look(job.night);
         if look.generation != job.generation {
             continue;
@@ -591,14 +583,7 @@ fn worker(engine: &Arc<Engine>) {
         };
         // The look may have changed while this tile was drawn; the client
         // has the new state and asks again.
-        if engine
-            .view
-            .read()
-            .expect("view lock")
-            .look(job.night)
-            .generation
-            != job.generation
-        {
+        if crate::guard(engine.view.read()).look(job.night).generation != job.generation {
             continue;
         }
         let message = match result {
@@ -628,7 +613,7 @@ fn connection(engine: &Arc<Engine>, stream: UnixStream) {
     let (Ok(writer), Ok(closer)) = (stream.try_clone(), stream.try_clone()) else {
         return;
     };
-    engine.clients.lock().expect("clients lock").push(Client {
+    crate::guard(engine.clients.lock()).push(Client {
         id,
         tx,
         stream: closer,
@@ -688,16 +673,8 @@ fn connection(engine: &Arc<Engine>, stream: UnixStream) {
             engine.send(id, r);
         }
     }
-    engine
-        .clients
-        .lock()
-        .expect("clients lock")
-        .retain(|c| c.id != id);
-    engine
-        .queue
-        .lock()
-        .expect("queue lock")
-        .retain(|j| j.client != id);
+    crate::guard(engine.clients.lock()).retain(|c| c.id != id);
+    crate::guard(engine.queue.lock()).retain(|j| j.client != id);
 }
 
 fn uint(v: &Value, key: &str) -> Option<u64> {
@@ -831,7 +808,7 @@ fn tiles(engine: &Arc<Engine>, id: u64, m: &Value) -> Result<(), String> {
         return Err("scale must be 1 to 4".into());
     }
     let night = wants_night(m)?;
-    let view = engine.view.read().expect("view lock").clone();
+    let view = crate::guard(engine.view.read()).clone();
     let look = view.look(night);
     let (cx, cy) = ((x0 + x1) as f64 / 2.0, (y0 + y1) as f64 / 2.0);
     let mut keys: Vec<TileKey> = (y0..=y1)
@@ -847,14 +824,14 @@ fn tiles(engine: &Arc<Engine>, id: u64, m: &Value) -> Result<(), String> {
         let d = |k: &TileKey| (f64::from(k.x) - cx).powi(2) + (f64::from(k.y) - cy).powi(2);
         d(a).total_cmp(&d(b))
     });
-    let mut q = engine.queue.lock().expect("queue lock");
+    let mut q = crate::guard(engine.queue.lock());
     q.retain(|j| j.client != id);
     for key in keys {
         let rel = tile_path(&key);
         if look.tiles.join(&rel).exists() {
             drop(q);
             engine.send(id, tile_message(&key, &look.generation, Some(&rel), None));
-            q = engine.queue.lock().expect("queue lock");
+            q = crate::guard(engine.queue.lock());
         } else {
             q.push_back(Job {
                 client: id,
@@ -892,7 +869,7 @@ fn query(engine: &Arc<Engine>, m: &Value) -> Result<Value, String> {
     if !(-90.0..=90.0).contains(&lat) || !(-180.0..=180.0).contains(&lon) {
         return Err("position out of range".into());
     }
-    let view = engine.view.read().expect("view lock").clone();
+    let view = crate::guard(engine.view.read()).clone();
     let features = features_at(&view.library, &view.day.style.settings, lat, lon, zoom);
     let mut reply =
         json!({"type": "features", "v": VERSION, "lat": lat, "lon": lon, "features": features});

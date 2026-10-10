@@ -212,7 +212,10 @@ fn trip(args: &[String]) -> Result<(), String> {
         Some(d) => log
             .day(d)
             .ok_or_else(|| format!("no tracks for {d} in {}", log.vault().display()))?,
-        None => log.days().last().expect("a day, since the log isn't empty"),
+        None => log
+            .days()
+            .last()
+            .ok_or_else(|| format!("no GPX tracks in {}", log.vault().display()))?,
     };
     let gpx = day.gpx(&log.boat(&day.date)?);
     let gaps = day.gaps().count();

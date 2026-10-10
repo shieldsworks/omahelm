@@ -200,31 +200,30 @@ impl Palette {
     /// one pale, and green cans stay square, red nuns pointed.
     pub fn night() -> Palette {
         let bg = Rgb(0x0c, 0x04, 0x04);
-        let hex = |s: &str| Rgb::parse(s).expect("palette color");
         Palette {
             dark: true,
-            nodata: hex("#120606"),
+            nodata: Rgb(0x12, 0x06, 0x06),
             deep: bg,
             // Water stays dark, land stands clear of it.
-            medium_deep: hex("#110504"),
-            medium_shallow: hex("#170605"),
-            very_shallow: hex("#1f0807"),
-            drying: hex("#2c0c09"),
-            land: hex("#4a170f"),
-            built: hex("#4e1910"),
-            structure: hex("#6e1e16"),
-            ink: hex("#c8402f"),
-            faint: hex("#7a2418"),
-            contour: hex("#5a1a12"),
-            magenta: hex("#a8302a"),
-            red: hex("#ff3b2f"),
+            medium_deep: Rgb(0x11, 0x05, 0x04),
+            medium_shallow: Rgb(0x17, 0x06, 0x05),
+            very_shallow: Rgb(0x1f, 0x08, 0x07),
+            drying: Rgb(0x2c, 0x0c, 0x09),
+            land: Rgb(0x4a, 0x17, 0x0f),
+            built: Rgb(0x4e, 0x19, 0x10),
+            structure: Rgb(0x6e, 0x1e, 0x16),
+            ink: Rgb(0xc8, 0x40, 0x2f),
+            faint: Rgb(0x7a, 0x24, 0x18),
+            contour: Rgb(0x5a, 0x1a, 0x12),
+            magenta: Rgb(0xa8, 0x30, 0x2a),
+            red: Rgb(0xff, 0x3b, 0x2f),
             // Dark, but clear of the water and the contours.
-            green: hex("#7c2117"),
-            yellow: hex("#ffa28a"),
-            white: hex("#ffb8a4"),
-            black: hex("#050101"),
-            orange: hex("#ff6b5a"),
-            blue: hex("#3a100c"),
+            green: Rgb(0x7c, 0x21, 0x17),
+            yellow: Rgb(0xff, 0xa2, 0x8a),
+            white: Rgb(0xff, 0xb8, 0xa4),
+            black: Rgb(0x05, 0x01, 0x01),
+            orange: Rgb(0xff, 0x6b, 0x5a),
+            blue: Rgb(0x3a, 0x10, 0x0c),
         }
     }
 

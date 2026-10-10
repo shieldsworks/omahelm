@@ -213,7 +213,7 @@ impl Library {
     /// A cell, from the cache or read from disk.
     pub fn load(&self, entry: &Entry) -> Result<Arc<Chart>, String> {
         {
-            let mut cache = self.cache.lock().expect("chart cache lock");
+            let mut cache = crate::guard(self.cache.lock());
             if let Some(i) = cache.iter().position(|(n, _)| *n == entry.name) {
                 let hit = cache.remove(i);
                 let chart = hit.1.clone();
@@ -222,7 +222,7 @@ impl Library {
             }
         }
         let chart = Arc::new(Chart::from_cell(Cell::open(&self.root.join(&entry.path))?));
-        let mut cache = self.cache.lock().expect("chart cache lock");
+        let mut cache = crate::guard(self.cache.lock());
         if !cache.iter().any(|(n, _)| *n == entry.name) {
             cache.push((entry.name.clone(), chart.clone()));
             if cache.len() > CACHE {
@@ -234,7 +234,7 @@ impl Library {
 
     /// Drops every cached cell, to give the memory back while idle.
     pub fn forget(&self) {
-        self.cache.lock().expect("chart cache lock").clear();
+        crate::guard(self.cache.lock()).clear();
     }
 
     /// Changes whenever any cell, edition or update does.
