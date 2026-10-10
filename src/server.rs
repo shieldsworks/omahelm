@@ -14,8 +14,10 @@ use crate::text::Font;
 use crate::trips::{self, Log};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::os::unix::fs::PermissionsExt;
+use std::ffi::OsString;
+use std::fs::{self, File, OpenOptions};
+use std::io::{self, BufRead, BufReader, Read, Write};
+use std::os::unix::fs::{FileTypeExt, OpenOptionsExt, PermissionsExt};
 use std::os::unix::io::AsRawFd;
 use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
@@ -356,25 +358,79 @@ fn error_message(message: &str) -> String {
     json!({"type": "error", "v": VERSION, "message": message}).to_string()
 }
 
-/// Holds the lock file for the life of the engine.
-struct Lock {
-    _file: std::fs::File,
+fn bind(path: &Path) -> io::Result<(UnixListener, SocketFile)> {
+    if let Some(dir) = path.parent()
+        && !dir.as_os_str().is_empty()
+        && !dir.exists()
+    {
+        fs::create_dir_all(dir)
+            .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", dir.display())))?;
+        fs::set_permissions(dir, fs::Permissions::from_mode(0o700))?;
+    }
+    let lock = lock(path)?;
+    if let Ok(metadata) = fs::symlink_metadata(path) {
+        if !metadata.file_type().is_socket() {
+            return Err(io::Error::new(
+                io::ErrorKind::AlreadyExists,
+                format!("{} exists and isn't a socket", path.display()),
+            ));
+        }
+        fs::remove_file(path)?;
+    }
+    let listener = UnixListener::bind(path)
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
+    Ok((
+        listener,
+        SocketFile {
+            path: path.to_path_buf(),
+            _lock: lock,
+        },
+    ))
 }
 
-fn lock(path: &Path) -> Result<Option<Lock>, String> {
-    let f = std::fs::OpenOptions::new()
+fn lock_path(socket: &Path) -> PathBuf {
+    let mut name = OsString::from(socket.as_os_str());
+    name.push(".lock");
+    PathBuf::from(name)
+}
+
+fn lock(socket: &Path) -> io::Result<File> {
+    let path = lock_path(socket);
+    let file = OpenOptions::new()
+        .read(true)
+        .write(true)
         .create(true)
         .truncate(false)
-        .write(true)
-        .open(path)
-        .map_err(|e| format!("{}: {e}", path.display()))?;
-    // SAFETY: flock on a descriptor we own.
-    let r = unsafe { libc::flock(f.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) };
-    Ok(if r == 0 {
-        Some(Lock { _file: f })
-    } else {
-        None
-    })
+        .mode(0o600)
+        .open(&path)
+        .map_err(|e| io::Error::new(e.kind(), format!("{}: {e}", path.display())))?;
+    // SAFETY: `flock` on a descriptor `file` owns; the lock lasts until the
+    // file is closed.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } != 0 {
+        let err = io::Error::last_os_error();
+        if err.kind() == io::ErrorKind::WouldBlock {
+            return Err(io::Error::new(
+                io::ErrorKind::AddrInUse,
+                format!("already running on {}", socket.display()),
+            ));
+        }
+        return Err(io::Error::new(
+            err.kind(),
+            format!("{}: {err}", path.display()),
+        ));
+    }
+    Ok(file)
+}
+
+struct SocketFile {
+    path: PathBuf,
+    _lock: File,
+}
+
+impl Drop for SocketFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 pub fn serve(charts: PathBuf) -> Result<(), String> {
@@ -385,15 +441,8 @@ pub fn serve(charts: PathBuf) -> Result<(), String> {
     let (loaded, _) = load_style(&config, &theme);
     let vault = trips::default_vault(loaded.settings.logbook.as_deref())?;
 
-    std::fs::create_dir_all(&runtime).map_err(|e| format!("{}: {e}", runtime.display()))?;
-    let _ = std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700));
     let socket = runtime.join("helm.sock");
-    let Some(_lock) = lock(&socket.with_extension("sock.lock"))? else {
-        eprintln!("omahelm: already running on {}", socket.display());
-        return Ok(());
-    };
-    let _ = std::fs::remove_file(&socket);
-    let listener = UnixListener::bind(&socket).map_err(|e| format!("{}: {e}", socket.display()))?;
+    let (listener, _held) = bind(&socket).map_err(|e| e.to_string())?;
     let _ = std::fs::set_permissions(&socket, std::fs::Permissions::from_mode(0o600));
     listener.set_nonblocking(true).map_err(|e| e.to_string())?;
     // SAFETY: the handler only stores to an atomic.
@@ -465,7 +514,6 @@ pub fn serve(charts: PathBuf) -> Result<(), String> {
             Err(e) => eprintln!("omahelm: accept: {e}"),
         }
     }
-    let _ = std::fs::remove_file(&socket);
     Ok(())
 }
 
@@ -1125,5 +1173,76 @@ mod tests {
         assert!(!dir.join("fedcba9876543210").exists());
         assert!(dir.join("notageneration").exists());
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_lock_is_named_for_the_whole_socket_name() {
+        assert_eq!(
+            lock_path(Path::new("/run/omahelm/helm.sock")),
+            Path::new("/run/omahelm/helm.sock.lock")
+        );
+        assert_ne!(
+            lock_path(Path::new("helm.sock")),
+            lock_path(Path::new("helm.other"))
+        );
+        assert_eq!(
+            lock_path(Path::new("helm.lock")),
+            Path::new("helm.lock.lock")
+        );
+    }
+
+    #[test]
+    fn a_second_bind_is_already_running_and_the_lock_is_private() {
+        let dir = std::env::temp_dir().join(format!("omahelm-bind-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let socket = dir.join("helm.sock");
+        let (listener, held) = bind(&socket).unwrap();
+        let err = match bind(&socket) {
+            Err(err) => err,
+            Ok(_) => panic!("a second bind took the socket"),
+        };
+        assert_eq!(err.kind(), std::io::ErrorKind::AddrInUse);
+        assert_eq!(
+            err.to_string(),
+            format!("already running on {}", socket.display())
+        );
+        let mode = std::fs::metadata(lock_path(&socket))
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777;
+        assert_eq!(mode, 0o600);
+        let dir_mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(dir_mode, 0o700);
+        drop(listener);
+        drop(held);
+        assert!(
+            !socket.exists(),
+            "the engine removes its socket on the way out"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_crashed_socket_is_replaced_and_a_regular_file_is_not() {
+        let dir = std::env::temp_dir().join(format!("omahelm-bind-file-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let socket = dir.join("helm.sock");
+        drop(UnixListener::bind(&socket).unwrap());
+        let (listener, held) = bind(&socket).unwrap();
+        drop(listener);
+        drop(held);
+        assert!(!socket.exists());
+
+        std::fs::write(&socket, b"kept").unwrap();
+        let err = match bind(&socket) {
+            Err(err) => err,
+            Ok(_) => panic!("a regular file was replaced"),
+        };
+        assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
+        assert!(err.to_string().contains("isn't a socket"));
+        assert_eq!(std::fs::read(&socket).unwrap(), b"kept");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

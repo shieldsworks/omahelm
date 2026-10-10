@@ -8,9 +8,15 @@ writes tiles as PNG files and names them.
 
 - A Unix stream socket, `$XDG_RUNTIME_DIR/omahelm/helm.sock`.
   `XDG_RUNTIME_DIR` must be an absolute path. The engine does not
-  substitute another directory. The directory is created with mode 0700.
-  A lock file beside it (`helm.sock.lock`) keeps a second engine from
-  starting; a socket left by a crashed engine is replaced.
+  substitute another directory. The window shows
+  "XDG_RUNTIME_DIR must be set to an absolute path" and does not open
+  `/tmp`.
+  The directory is created with mode 0700.
+  The lock file is the socket's whole name plus `.lock`
+  (`helm.sock.lock`), mode 0600. A second engine finds the lock held,
+  reports that it is already running, and exits with an error. A socket
+  left by a crashed engine is replaced. A file that is not a socket is
+  left in place, and the engine exits with an error.
 - Newline-delimited JSON, UTF-8, one object per line.
 - Every engine message has `"type"` and `"v": 1`. A client that sees another
   `v` shows an error and stops using the engine.
