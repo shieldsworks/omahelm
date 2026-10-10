@@ -1,6 +1,7 @@
 import QtQuick
 import Quickshell
 import Quickshell.Io
+import "runtime.js" as Runtime
 
 // The connection to the chart engine, `omahelm serve`. The protocol is
 // docs/protocol.md: newline-delimited JSON, version 1. When the engine
@@ -9,13 +10,16 @@ QtObject {
     id: helm
 
     readonly property int version: 1
-    readonly property string runtime: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/omahelm/"
-    readonly property string path: runtime + "helm.sock"
+    // The engine accepts `XDG_RUNTIME_DIR` only when it is absolute. The
+    // window uses the same rule and does not substitute another directory.
+    readonly property string runtimeError: Runtime.runtimeError(Quickshell.env("XDG_RUNTIME_DIR"))
+    readonly property string runtime: Runtime.runtimeDir(Quickshell.env("XDG_RUNTIME_DIR"))
+    readonly property string path: runtime.length ? runtime + "helm.sock" : ""
     // The checkout or plugin directory: this file is <repo>/ui/Helm.qml.
     readonly property string repo: decodeURIComponent(String(Qt.resolvedUrl("..")).replace(/^file:\/\//, "")).replace(/\/$/, "")
     readonly property string binary: Quickshell.env("OMAHELM_BIN") || repo + "/target/release/omahelm"
     // The engine's stderr, so a failed start can be shown.
-    readonly property string log: runtime + "engine.log"
+    readonly property string log: runtime.length ? runtime + "engine.log" : ""
 
     property var state: null
     property string error: ""
@@ -110,6 +114,7 @@ QtObject {
     // argv, never shell text built from paths. The engine keeps one copy
     // running through its lock file, so a second start is harmless.
     function start() {
+        if (helm.runtimeError) return;
         var script = 'mkdir -p -m 700 "$1" && b="$2"; [ -x "$b" ] || b=omahelm; exec "$b" serve 2>>"$3"';
         Quickshell.execDetached(["env", "-C", Quickshell.env("HOME") || "/", "sh", "-c", script,
                                  "omahelm-start", helm.runtime, helm.binary, helm.log]);
@@ -119,7 +124,7 @@ QtObject {
     property Component socketFactory: Component {
         Socket {
             path: helm.path
-            connected: true
+            connected: helm.runtimeError === ""
             parser: SplitParser {
                 onRead: data => helm.receive(data)
             }
@@ -142,7 +147,7 @@ QtObject {
         interval: helm.attempts < 10 ? 1000 : 3000
         repeat: true
         triggeredOnStart: false
-        running: helm.socket !== null && !helm.socket.connected && !helm.incompatible
+        running: helm.runtimeError === "" && helm.socket !== null && !helm.socket.connected && !helm.incompatible
         onTriggered: {
             helm.attempts += 1;
             if (helm.attempts % 20 === 1) helm.start();
