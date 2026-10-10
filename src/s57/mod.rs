@@ -760,9 +760,11 @@ fn rings(parts: Vec<Vec<Pt>>) -> Vec<Vec<Pt>> {
             out.push(std::mem::take(&mut current));
             continue;
         }
-        let Some(&end) = current.last() else {
-            continue;
-        };
+        #[expect(
+            clippy::expect_used,
+            reason = "edges shorter than two points are dropped, so a ring in progress is never empty"
+        )]
+        let end = *current.last().expect("current ring is not empty");
         let found = (next..pending.len())
             .chain(0..next)
             .find_map(|i| match &pending[i] {
@@ -772,9 +774,11 @@ fn rings(parts: Vec<Vec<Pt>>) -> Vec<Vec<Pt>> {
             });
         match found {
             Some((i, reversed)) => {
-                let Some(mut part) = pending[i].take() else {
-                    continue;
-                };
+                #[expect(
+                    clippy::expect_used,
+                    reason = "the search returns an index only when that pending slot is still Some"
+                )]
+                let mut part = pending[i].take().expect("found a pending edge");
                 if reversed {
                     part.reverse();
                 }
