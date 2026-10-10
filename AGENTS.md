@@ -52,13 +52,20 @@ feature map in `.cursor/skills/verify/features/`.
 ## The gates are not yours to move
 
 These files set the rules and are changed only in a PR whose whole purpose
-is changing them, reviewed by a human:
+is changing them:
 
 - `[lints]` in `Cargo.toml`, and `clippy.toml`
 - `.github/workflows/`, `scripts/verify.sh`, `scripts/check-comments.sh`
 - `mise.toml` task definitions for `lint`, `test`, `goldens` and `bless`
 - the comparison in `tests/goldens.rs` (adding a case to `GOLDENS` is a
   normal change)
+
+Such a PR merges only after review by someone other than its author, either
+Casey or Casey's delegated reviewer Dev. Dev's review means all three: an
+independent agent verifies the PR head on a clean checkout (runs the repo's
+verify gate and drives the changed behavior), an adversarial review
+challenges the change, and CI is green on the exact head SHA merged. The
+author agent never approves or merges its own PR.
 
 The `[lints]` table is the suite's without `clippy::pedantic`, `expect_used`
 and the `cast_*` lints. CI denies warnings, so they would fail the build at
