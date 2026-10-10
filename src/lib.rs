@@ -2,11 +2,12 @@
 //! read and drawn from scratch.
 
 /// A poisoned lock means another thread panicked while holding it.
+#[expect(
+    clippy::expect_used,
+    reason = "a poisoned lock means another thread already panicked"
+)]
 pub(crate) fn guard<T>(result: Result<T, std::sync::PoisonError<T>>) -> T {
-    match result {
-        Ok(guard) => guard,
-        Err(poisoned) => panic!("a thread panicked while holding a lock: {poisoned}"),
-    }
+    result.expect("a poisoned lock means another thread already panicked")
 }
 
 pub mod chart;
