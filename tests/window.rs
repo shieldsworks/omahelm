@@ -1,5 +1,3 @@
-//! The chart window's runtime directory, the same rule as the engine.
-
 #![allow(
     clippy::unwrap_used,
     reason = "a tests/*.rs file is a crate of its own; allow-unwrap-in-tests covers its #[test] fns, not their helpers"
@@ -12,8 +10,6 @@ fn runtime_js() -> String {
     std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
-/// Runs `ui/runtime.js` the way the window does: one value in, the directory
-/// and the error string out.
 fn helm_runtime(value: &str) -> (String, String) {
     let script = format!(
         r#"

@@ -10,8 +10,6 @@ QtObject {
     id: helm
 
     readonly property int version: 1
-    // The engine accepts `XDG_RUNTIME_DIR` only when it is absolute. The
-    // window uses the same rule and does not substitute another directory.
     readonly property string runtimeError: Runtime.runtimeError(Quickshell.env("XDG_RUNTIME_DIR"))
     readonly property string runtime: Runtime.runtimeDir(Quickshell.env("XDG_RUNTIME_DIR"))
     readonly property string path: runtime.length ? runtime + "helm.sock" : ""

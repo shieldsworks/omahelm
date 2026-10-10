@@ -358,8 +358,6 @@ fn error_message(message: &str) -> String {
     json!({"type": "error", "v": VERSION, "message": message}).to_string()
 }
 
-/// Takes the lock beside the socket, so one socket has one engine, then
-/// binds, replacing a socket a crashed engine left behind.
 fn bind(path: &Path) -> io::Result<(UnixListener, SocketFile)> {
     if let Some(dir) = path.parent()
         && !dir.as_os_str().is_empty()
@@ -377,7 +375,6 @@ fn bind(path: &Path) -> io::Result<(UnixListener, SocketFile)> {
                 format!("{} exists and isn't a socket", path.display()),
             ));
         }
-        // Holding the lock means no engine is serving it.
         fs::remove_file(path)?;
     }
     let listener = UnixListener::bind(path)
@@ -391,15 +388,12 @@ fn bind(path: &Path) -> io::Result<(UnixListener, SocketFile)> {
     ))
 }
 
-/// `helm.sock.lock` for `helm.sock`: the whole socket name plus `.lock`, so
-/// no two socket names share a lock.
 fn lock_path(socket: &Path) -> PathBuf {
     let mut name = OsString::from(socket.as_os_str());
     name.push(".lock");
     PathBuf::from(name)
 }
 
-/// An exclusive lock beside the socket, held until the engine exits.
 fn lock(socket: &Path) -> io::Result<File> {
     let path = lock_path(socket);
     let file = OpenOptions::new()
@@ -428,7 +422,6 @@ fn lock(socket: &Path) -> io::Result<File> {
     Ok(file)
 }
 
-/// Removes the socket, then lets go of the lock.
 struct SocketFile {
     path: PathBuf,
     _lock: File,

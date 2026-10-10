@@ -1,5 +1,3 @@
-//! `omahelm serve` as a second process, and a path that is not a socket.
-
 #![allow(
     clippy::unwrap_used,
     reason = "a tests/*.rs file is a crate of its own; allow-unwrap-in-tests covers its #[test] fns, not their helpers"
