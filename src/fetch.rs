@@ -60,17 +60,14 @@ pub fn url(target: &str) -> Result<String, String> {
     ))
 }
 
-fn downloads() -> PathBuf {
-    let base = std::env::var("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| crate::style::home().join(".cache"));
-    base.join("omahelm/downloads")
+fn downloads() -> Result<PathBuf, String> {
+    Ok(crate::paths::Xdg::Cache.base()?.join("omahelm/downloads"))
 }
 
 /// Downloads each target and installs its cells into the charts directory.
 pub fn fetch(targets: &[String], root: &Path) -> Result<usize, String> {
     let urls: Vec<String> = targets.iter().map(|t| url(t)).collect::<Result<_, _>>()?;
-    let dir = downloads();
+    let dir = downloads()?;
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let mut installed = 0;
     for u in urls {

@@ -7,6 +7,7 @@ pub mod geo;
 pub mod iso8211;
 pub mod library;
 pub mod marks;
+pub mod paths;
 pub mod render;
 pub mod s57;
 pub mod server;

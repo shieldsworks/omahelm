@@ -4,8 +4,9 @@
 
 use crate::chart::{Chart, Geom, Item};
 use crate::geo::{self, Rect, mercator};
-use crate::library::{self, Fnv, Library};
+use crate::library::{Fnv, Library};
 use crate::marks;
+use crate::paths;
 use crate::render::{self, Style, TILE, TileKey};
 use crate::s57::{self, names::*};
 use crate::style::{self, Palette, Settings};
@@ -37,21 +38,16 @@ extern "C" fn on_signal(_: libc::c_int) {
     STOP.store(true, Ordering::SeqCst);
 }
 
-pub fn socket_path() -> PathBuf {
-    runtime_dir().join("helm.sock")
+pub fn socket_path() -> Result<PathBuf, String> {
+    Ok(runtime_dir()?.join("helm.sock"))
 }
 
-fn runtime_dir() -> PathBuf {
-    let base =
-        std::env::var("XDG_RUNTIME_DIR").map_or_else(|_| std::env::temp_dir(), PathBuf::from);
-    base.join("omahelm")
+fn runtime_dir() -> Result<PathBuf, String> {
+    Ok(paths::runtime()?.join("omahelm"))
 }
 
-fn cache_dir() -> PathBuf {
-    let base = std::env::var("XDG_CACHE_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| style::home().join(".cache"));
-    base.join("omahelm/tiles")
+fn cache_dir() -> Result<PathBuf, String> {
+    Ok(paths::Xdg::Cache.base()?.join("omahelm/tiles"))
 }
 
 struct Client {
@@ -101,6 +97,9 @@ struct Engine {
     ready: Condvar,
     busy: Mutex<Instant>,
     charts: PathBuf,
+    cache: PathBuf,
+    config: PathBuf,
+    theme: PathBuf,
     next_id: AtomicU64,
 }
 
@@ -112,10 +111,9 @@ fn mtime(path: &Path) -> Option<SystemTime> {
 /// settings, the chart index, and every chart file's size and time. A
 /// fingerprint rather than the newest time: a chart copied over another
 /// with its old timestamp kept is still a change.
-fn watched(charts: &Path) -> Vec<String> {
-    let theme = style::theme_path();
-    let theme = std::fs::canonicalize(&theme).unwrap_or(theme);
-    let mut out: Vec<String> = [theme, style::config_path(), charts.join("index.json")]
+fn watched(charts: &Path, theme: &Path, config: &Path) -> Vec<String> {
+    let theme = std::fs::canonicalize(theme).unwrap_or_else(|_| theme.to_path_buf());
+    let mut out: Vec<String> = [theme, config.to_path_buf(), charts.join("index.json")]
         .iter()
         .map(|p| format!("{}|{:?}", p.display(), mtime(p)))
         .collect();
@@ -146,9 +144,8 @@ fn cells_fingerprint(charts: &Path) -> String {
     format!("{} files {:016x}", files.len(), h.0)
 }
 
-fn load_style() -> (Style, Vec<String>) {
-    let path = style::config_path();
-    let (settings, problems) = match std::fs::read_to_string(&path) {
+fn load_style(config: &Path, theme: &Path) -> (Style, Vec<String>) {
+    let (settings, problems) = match std::fs::read_to_string(config) {
         Ok(text) => {
             let (s, p) = Settings::parse(&text);
             (
@@ -161,14 +158,14 @@ fn load_style() -> (Style, Vec<String>) {
     let palette = if settings.palette == "paper" {
         Palette::paper()
     } else {
-        Palette::from_theme(&style::read_theme(&style::theme_path()))
+        Palette::from_theme(&style::read_theme(theme))
     };
     (Style { palette, settings }, problems)
 }
 
 impl Engine {
     fn make_view(&self, library: Arc<Library>, indexing: Option<(usize, usize)>) -> View {
-        let (style, mut problems) = load_style();
+        let (style, mut problems) = load_style(&self.config, &self.theme);
         if self.font.is_none() {
             problems.push("No font found: charts are drawn without soundings or names.".into());
         }
@@ -197,7 +194,7 @@ impl Engine {
         );
         let generation = format!("{:016x}", h.0);
         Look {
-            tiles: cache_dir().join(&generation),
+            tiles: self.cache.join(&generation),
             style: Arc::new(style),
             generation,
         }
@@ -205,7 +202,7 @@ impl Engine {
 
     /// The logbook, opened afresh when the setting points somewhere else
     /// and re-read when its files have changed.
-    fn with_log<T>(&self, f: impl FnOnce(&mut Log) -> T) -> T {
+    fn with_log<T>(&self, f: impl FnOnce(&mut Log) -> T) -> Result<T, String> {
         let configured = self
             .view
             .read()
@@ -215,14 +212,14 @@ impl Engine {
             .settings
             .logbook
             .clone();
-        let wanted = trips::default_vault(configured.as_deref());
+        let wanted = trips::default_vault(configured.as_deref())?;
         let mut log = self.log.lock().expect("log lock");
         if log.vault() == wanted {
             log.refresh();
         } else {
             *log = Log::open(wanted);
         }
-        f(&mut log)
+        Ok(f(&mut log))
     }
 
     fn state(&self) -> String {
@@ -299,7 +296,7 @@ impl Engine {
         if old.day.generation != new.day.generation || old.night.generation != new.night.generation
         {
             prune(
-                &cache_dir(),
+                &self.cache,
                 &[
                     &new.day.generation,
                     &new.night.generation,
@@ -381,10 +378,16 @@ fn lock(path: &Path) -> Result<Option<Lock>, String> {
 }
 
 pub fn serve(charts: PathBuf) -> Result<(), String> {
-    let dir = runtime_dir();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-    let socket = socket_path();
+    let runtime = runtime_dir()?;
+    let cache = cache_dir()?;
+    let config = style::config_path()?;
+    let theme = style::theme_path()?;
+    let (loaded, _) = load_style(&config, &theme);
+    let vault = trips::default_vault(loaded.settings.logbook.as_deref())?;
+
+    std::fs::create_dir_all(&runtime).map_err(|e| format!("{}: {e}", runtime.display()))?;
+    let _ = std::fs::set_permissions(&runtime, std::fs::Permissions::from_mode(0o700));
+    let socket = runtime.join("helm.sock");
     let Some(_lock) = lock(&socket.with_extension("sock.lock"))? else {
         eprintln!("omahelm: already running on {}", socket.display());
         return Ok(());
@@ -402,31 +405,32 @@ pub fn serve(charts: PathBuf) -> Result<(), String> {
     std::fs::create_dir_all(&charts).map_err(|e| format!("{}: {e}", charts.display()))?;
 
     let font = Font::load();
-    let unset = |palette| Look {
+    let unset = |palette, tiles| Look {
         style: Arc::new(Style {
             palette,
             settings: Settings::default(),
         }),
         generation: String::new(),
-        tiles: cache_dir(),
+        tiles,
     };
     let engine = Arc::new(Engine {
         view: RwLock::new(Arc::new(View {
             library: Arc::new(Library::empty(&charts)),
-            day: unset(load_style().0.palette),
-            night: unset(Palette::night()),
+            day: unset(loaded.palette, cache.clone()),
+            night: unset(Palette::night(), cache.clone()),
             problems: Vec::new(),
             indexing: Some((0, 0)),
         })),
         font,
-        log: Mutex::new(Log::open(trips::default_vault(
-            load_style().0.settings.logbook.as_deref(),
-        ))),
+        log: Mutex::new(Log::open(vault)),
         clients: Mutex::new(Vec::new()),
         queue: Mutex::new(VecDeque::new()),
         ready: Condvar::new(),
         busy: Mutex::new(Instant::now()),
         charts: charts.clone(),
+        cache,
+        config,
+        theme,
         next_id: AtomicU64::new(1),
     });
     let first = engine.make_view(Arc::new(Library::empty(&charts)), Some((0, 0)));
@@ -486,13 +490,13 @@ fn spawn_indexer(engine: &Arc<Engine>) {
 }
 
 fn watcher(engine: &Arc<Engine>) {
-    let mut seen = watched(&engine.charts);
+    let mut seen = watched(&engine.charts, &engine.theme, &engine.config);
     loop {
         std::thread::sleep(Duration::from_secs(2));
         if STOP.load(Ordering::SeqCst) {
             return;
         }
-        let now = watched(&engine.charts);
+        let now = watched(&engine.charts, &engine.theme, &engine.config);
         if now != seen {
             let charts_changed = now[2..] != seen[2..];
             seen = now;
@@ -661,7 +665,10 @@ fn handle(engine: &Arc<Engine>, id: u64, m: &Value) -> Option<String> {
             Ok(v) => v.to_string(),
             Err(e) => error_message(&format!("query: {e}")),
         }),
-        Some("trips") => Some(trips_index(engine).to_string()),
+        Some("trips") => Some(match trips_index(engine) {
+            Ok(v) => v.to_string(),
+            Err(e) => error_message(&format!("trips: {e}")),
+        }),
         Some("trip") => trip(engine, id, m)
             .err()
             .map(|e| error_message(&format!("trip: {e}"))),
@@ -672,7 +679,7 @@ fn handle(engine: &Arc<Engine>, id: u64, m: &Value) -> Option<String> {
 
 /// `trips`: every day the logbook has a track for, and what the day was.
 /// Enough for a calendar and a list; the geometry comes with `trip`.
-fn trips_index(engine: &Arc<Engine>) -> Value {
+fn trips_index(engine: &Arc<Engine>) -> Result<Value, String> {
     engine.with_log(|log| {
         let days: Vec<Value> = log.days().iter().map(trips::Day::summary).collect();
         let mut v = json!({"type": "trips", "v": VERSION, "status": log.status(),
@@ -725,7 +732,7 @@ fn trip(engine: &Arc<Engine>, client: u64, m: &Value) -> Result<(), String> {
                 .collect::<Vec<Value>>(),
             more,
         )
-    });
+    })?;
     let days = messages.len();
     // Every stream ends with a message a client can recognize, so it knows
     // when the whole range is in; a range with nothing in it is that
@@ -1077,11 +1084,6 @@ fn capitalise(s: &str) -> String {
     let mut c = s.chars();
     c.next()
         .map_or_else(String::new, |f| f.to_uppercase().chain(c).collect())
-}
-
-/// The charts directory the engine and the CLI agree on.
-pub fn charts_root() -> PathBuf {
-    library::default_root()
 }
 
 #[cfg(test)]

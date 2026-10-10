@@ -25,27 +25,7 @@ const USAGE: &str = "usage:
 
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    let result = match args.first().map(String::as_str) {
-        Some("dump") if args.len() >= 2 => {
-            dump(Path::new(&args[1]), args.get(2).map(String::as_str))
-        }
-        Some("index") => index(&args[1..]),
-        Some("serve") => omahelm::server::serve(charts_root(&args[1..])),
-        Some("fetch") if args.get(1).map(String::as_str) == Some("--list") => {
-            for (code, name) in omahelm::fetch::REGIONS {
-                println!("{code}  {name}");
-            }
-            Ok(())
-        }
-        Some("fetch") if args.len() >= 2 => fetch(&args[1..]),
-        Some("import") if args.len() >= 2 => import(&args[1..]),
-        Some("trips") => trips(&args[1..]),
-        Some("trip") => trip(&args[1..]),
-        Some("query") => query(&args[1..]),
-        Some("render") => render_view(&args[1..]),
-        _ => Err(USAGE.to_string()),
-    };
-    match result {
+    match run(&args) {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("omahelm: {e}");
@@ -62,8 +42,34 @@ fn flag<'a>(args: &'a [String], name: &str) -> Option<&'a str> {
         .map(String::as_str)
 }
 
-fn charts_root(args: &[String]) -> PathBuf {
-    flag(args, "--charts").map_or_else(library::default_root, PathBuf::from)
+fn run(args: &[String]) -> Result<(), String> {
+    match args.first().map(String::as_str) {
+        Some("dump") if args.len() >= 2 => {
+            dump(Path::new(&args[1]), args.get(2).map(String::as_str))
+        }
+        Some("index") => index(&args[1..]),
+        Some("serve") => omahelm::server::serve(charts_root(&args[1..])?),
+        Some("fetch") if args.get(1).map(String::as_str) == Some("--list") => {
+            for (code, name) in omahelm::fetch::REGIONS {
+                println!("{code}  {name}");
+            }
+            Ok(())
+        }
+        Some("fetch") if args.len() >= 2 => fetch(&args[1..]),
+        Some("import") if args.len() >= 2 => import(&args[1..]),
+        Some("trips") => trips(&args[1..]),
+        Some("trip") => trip(&args[1..]),
+        Some("query") => query(&args[1..]),
+        Some("render") => render_view(&args[1..]),
+        _ => Err(USAGE.to_string()),
+    }
+}
+
+fn charts_root(args: &[String]) -> Result<PathBuf, String> {
+    match flag(args, "--charts") {
+        Some(p) => Ok(PathBuf::from(p)),
+        None => library::default_root(),
+    }
 }
 
 fn open_library(root: &Path) -> Library {
@@ -94,14 +100,14 @@ fn positional(args: &[String]) -> Vec<String> {
 }
 
 fn fetch(args: &[String]) -> Result<(), String> {
-    let root = charts_root(args);
+    let root = charts_root(args)?;
     let n = omahelm::fetch::fetch(&positional(args), &root)?;
     eprintln!("Installed {n} cells in {}", root.display());
     index(args)
 }
 
 fn import(args: &[String]) -> Result<(), String> {
-    let root = charts_root(args);
+    let root = charts_root(args)?;
     let mut n = 0;
     for p in positional(args) {
         n += omahelm::fetch::import(Path::new(&p), &root)?;
@@ -119,8 +125,8 @@ fn query(args: &[String]) -> Result<(), String> {
     let zoom = flag(args, "--zoom")
         .and_then(|z| z.parse().ok())
         .unwrap_or(15.0);
-    let lib = open_library(&charts_root(args));
-    let style = current_style(false);
+    let lib = open_library(&charts_root(args)?);
+    let style = current_style(false)?;
     for f in omahelm::server::features_at(&lib, &style.settings, lat, lon, zoom) {
         println!("{f}");
     }
@@ -128,7 +134,7 @@ fn query(args: &[String]) -> Result<(), String> {
 }
 
 fn index(args: &[String]) -> Result<(), String> {
-    let root = charts_root(args);
+    let root = charts_root(args)?;
     let lib = open_library(&root);
     println!("{} cells in {}", lib.entries.len(), root.display());
     for (cell, why) in &lib.problems {
@@ -140,15 +146,15 @@ fn index(args: &[String]) -> Result<(), String> {
 
 /// The logbook vault: `--logbook`, else the `logbook` setting, else the
 /// vault omalogbook is configured for.
-fn logbook(args: &[String]) -> PathBuf {
-    flag(args, "--logbook").map_or_else(
-        || trips::default_vault(current_style(false).settings.logbook.as_deref()),
-        trips::expand,
-    )
+fn logbook(args: &[String]) -> Result<PathBuf, String> {
+    match flag(args, "--logbook") {
+        Some(p) => trips::expand(p),
+        None => trips::default_vault(current_style(false)?.settings.logbook.as_deref()),
+    }
 }
 
 fn open_log(args: &[String]) -> Result<trips::Log, String> {
-    let log = trips::Log::open(logbook(args));
+    let log = trips::Log::open(logbook(args)?);
     match log.status() {
         "none" => Err(format!(
             "no tracks at {}. Set `logbook` in config.toml, or pass --logbook.",
@@ -208,7 +214,7 @@ fn trip(args: &[String]) -> Result<(), String> {
             .ok_or_else(|| format!("no tracks for {d} in {}", log.vault().display()))?,
         None => log.days().last().expect("a day, since the log isn't empty"),
     };
-    let gpx = day.gpx(&log.boat(&day.date));
+    let gpx = day.gpx(&log.boat(&day.date)?);
     let gaps = day.gaps().count();
     eprintln!(
         "{}: {} passages joined, {} gap{} filled with straight lines, {} of {} nm inferred",
@@ -229,8 +235,8 @@ fn trip(args: &[String]) -> Result<(), String> {
     Ok(())
 }
 
-fn current_style(night: bool) -> Style {
-    let settings = std::fs::read_to_string(style::config_path())
+fn current_style(night: bool) -> Result<Style, String> {
+    let settings = std::fs::read_to_string(style::config_path()?)
         .map(|t| Settings::parse(&t).0)
         .unwrap_or_default();
     let palette = if night {
@@ -238,9 +244,9 @@ fn current_style(night: bool) -> Style {
     } else if settings.palette == "paper" {
         Palette::paper()
     } else {
-        Palette::from_theme(&style::read_theme(&style::theme_path()))
+        Palette::from_theme(&style::read_theme(&style::theme_path()?))
     };
-    Style { palette, settings }
+    Ok(Style { palette, settings })
 }
 
 /// Renders a view as one PNG, tile by tile, as the chartplotter would.
@@ -261,8 +267,8 @@ fn render_view(args: &[String]) -> Result<(), String> {
         .and_then(|s| s.parse().ok())
         .unwrap_or(2);
     let out = flag(args, "--out").ok_or("--out is required")?;
-    let lib = open_library(&charts_root(args));
-    let style = current_style(args.iter().any(|a| a == "--night"));
+    let lib = open_library(&charts_root(args)?);
+    let style = current_style(args.iter().any(|a| a == "--night"))?;
     let font = Font::load();
     let world = f64::from(zoom).exp2() * TILE;
     let [mx, my] = mercator(lon, lat);

@@ -539,16 +539,19 @@ pub fn is_date(s: &str) -> bool {
 
 /// Where the logbook is: omahelm's own `logbook` setting, else the vault
 /// omalogbook is configured for, else `~/Logbook`, which is its default.
-pub fn default_vault(configured: Option<&str>) -> PathBuf {
+pub fn default_vault(configured: Option<&str>) -> Result<PathBuf, String> {
     if let Some(p) = configured.filter(|p| !p.is_empty()) {
         return expand(p);
     }
-    omalogbook_setting("vault").map_or_else(|| crate::style::home().join("Logbook"), |v| expand(&v))
+    match omalogbook_setting("vault")? {
+        Some(v) => expand(&v),
+        None => Ok(crate::paths::home()?.join("Logbook")),
+    }
 }
 
 /// The boat whose log this is, for an exported track's name.
-pub fn boat_name() -> String {
-    omalogbook_setting("boat").unwrap_or_else(|| "Boat".into())
+pub fn boat_name() -> Result<String, String> {
+    Ok(omalogbook_setting("boat")?.unwrap_or_else(|| "Boat".into()))
 }
 
 /// One key out of a note's YAML front matter: the block between the first
@@ -576,8 +579,11 @@ fn front_matter(text: &str, key: &str) -> Option<String> {
 
 /// One setting out of omalogbook's config, which is the same flat
 /// `key = "value"` shape omahelm's own is.
-fn omalogbook_setting(key: &str) -> Option<String> {
-    let text = std::fs::read_to_string(omalogbook_config()).ok()?;
+fn omalogbook_setting(key: &str) -> Result<Option<String>, String> {
+    let text = match std::fs::read_to_string(omalogbook_config()?) {
+        Ok(text) => text,
+        Err(_) => return Ok(None),
+    };
     for line in text.lines() {
         let line = line.split('#').next().unwrap_or("").trim();
         if let Some((k, v)) = line.split_once('=')
@@ -585,27 +591,34 @@ fn omalogbook_setting(key: &str) -> Option<String> {
         {
             let v = v.trim().trim_matches('"').trim();
             if !v.is_empty() {
-                return Some(v.to_string());
+                return Ok(Some(v.to_string()));
             }
         }
     }
-    None
+    Ok(None)
 }
 
-fn omalogbook_config() -> PathBuf {
-    let base = std::env::var("XDG_CONFIG_HOME")
-        .map(PathBuf::from)
-        .unwrap_or_else(|_| crate::style::home().join(".config"));
-    base.join("omalogbook/config.toml")
+fn omalogbook_config() -> Result<PathBuf, String> {
+    Ok(crate::paths::Xdg::Config
+        .base()?
+        .join("omalogbook/config.toml"))
 }
 
-pub fn expand(path: &str) -> PathBuf {
-    if let Some(rest) = path.strip_prefix("~/") {
-        crate::style::home().join(rest)
-    } else if path == "~" {
-        crate::style::home()
+pub fn expand(path: &str) -> Result<PathBuf, String> {
+    if path == "~" || path.starts_with("~/") {
+        expand_with(path, crate::paths::home())
     } else {
-        PathBuf::from(path)
+        Ok(PathBuf::from(path))
+    }
+}
+
+fn expand_with(path: &str, home: Result<PathBuf, String>) -> Result<PathBuf, String> {
+    if let Some(rest) = path.strip_prefix("~/") {
+        Ok(home?.join(rest))
+    } else if path == "~" {
+        home
+    } else {
+        Ok(PathBuf::from(path))
     }
 }
 
@@ -689,16 +702,19 @@ impl Log {
     /// The boat that sailed a day, out of the front matter of its note —
     /// `<vault>/YYYY/MM/YYYY-MM-DD.md`, as omalogbook writes it. Falls
     /// back to the boat omalogbook is configured for.
-    pub fn boat(&self, date: &str) -> String {
+    pub fn boat(&self, date: &str) -> Result<String, String> {
         let note = self
             .vault
             .join(&date[..4])
             .join(&date[5..7])
             .join(format!("{date}.md"));
-        std::fs::read_to_string(note)
+        if let Some(name) = std::fs::read_to_string(note)
             .ok()
             .and_then(|text| front_matter(&text, "boat"))
-            .unwrap_or_else(boat_name)
+        {
+            return Ok(name);
+        }
+        boat_name()
     }
 
     /// Re-reads the tracks if any file has appeared, grown or changed. A
@@ -925,6 +941,7 @@ pub fn day_rect(day: &Day) -> Option<Rect> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::path::PathBuf;
 
     const GPX: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <gpx version="1.1" creator="omalogbook" xmlns="http://www.topografix.com/GPX/1/1">
@@ -1306,6 +1323,33 @@ mod tests {
         assert_eq!(log.days().len(), 1);
         assert_eq!(log.days()[0].date, "2026-09-21");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_tilde_expands_under_the_given_home() {
+        let home = Ok(PathBuf::from("/home/ada"));
+        let missing: Result<PathBuf, String> = Err("HOME must be set to an absolute path".into());
+        assert_eq!(
+            expand_with("~/Logbook", home.clone()).unwrap(),
+            PathBuf::from("/home/ada/Logbook")
+        );
+        assert_eq!(expand_with("~", home).unwrap(), PathBuf::from("/home/ada"));
+        assert_eq!(
+            expand_with("~/Logbook", missing.clone()).unwrap_err(),
+            "HOME must be set to an absolute path"
+        );
+        assert_eq!(
+            expand_with("~", missing.clone()).unwrap_err(),
+            "HOME must be set to an absolute path"
+        );
+        assert_eq!(
+            expand_with("/data/log", missing.clone()).unwrap(),
+            PathBuf::from("/data/log")
+        );
+        assert_eq!(
+            expand_with("~Logbook", missing).unwrap(),
+            PathBuf::from("~Logbook")
+        );
     }
 
     #[test]
