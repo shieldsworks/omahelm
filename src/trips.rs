@@ -908,7 +908,9 @@ fn build(passages: Vec<Filed>) -> Vec<Day> {
                 legs: Vec::new(),
             });
         }
-        let day = days.last_mut().expect("there is a day by now");
+        // The last entry is this date. It matched, or the branch above pushed it.
+        let last = days.len() - 1;
+        let day = &mut days[last];
         day.passages += 1;
         for run in runs {
             if let Some(previous) = day.legs.last().and_then(|l| l.points.last()).copied() {
