@@ -1,7 +1,7 @@
 //! `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME` count only
 //! when the value is absolute. Otherwise the directory is under `$HOME`.
 //! `XDG_RUNTIME_DIR` is accepted only when it is absolute. `HOME` must be
-//! set when a path uses it.
+//! an absolute path when a path uses it.
 
 use std::ffi::OsStr;
 use std::path::PathBuf;
@@ -45,10 +45,7 @@ impl Xdg {
 }
 
 fn home_from(value: Option<&OsStr>) -> Result<PathBuf, &'static str> {
-    match value {
-        Some(path) => Ok(PathBuf::from(path)),
-        None => Err("HOME must be set"),
-    }
+    absolute(value).ok_or("HOME must be set to an absolute path")
 }
 
 pub fn home() -> Result<PathBuf, String> {
@@ -103,31 +100,25 @@ mod tests {
     }
 
     #[test]
-    fn missing_home_on_the_xdg_fallback_is_an_error() {
-        for xdg in [Xdg::Config, Xdg::Cache, Xdg::Data] {
-            assert_eq!(xdg.resolve(None, None).unwrap_err(), "HOME must be set");
-            assert_eq!(
-                xdg.resolve(Some(OsStr::new("")), None).unwrap_err(),
-                "HOME must be set"
-            );
-            assert_eq!(
-                xdg.resolve(Some(OsStr::new("rel")), None).unwrap_err(),
-                "HOME must be set"
-            );
+    fn a_home_that_is_not_absolute_cannot_make_a_fallback_relative() {
+        let err = "HOME must be set to an absolute path";
+        for home in [None, Some(OsStr::new("")), Some(OsStr::new("rel"))] {
+            for xdg in [Xdg::Config, Xdg::Cache, Xdg::Data] {
+                assert_eq!(xdg.resolve(None, home).unwrap_err(), err);
+                assert_eq!(xdg.resolve(Some(OsStr::new("rel")), home).unwrap_err(), err);
+            }
         }
     }
 
     #[test]
-    fn home_must_be_set_and_is_otherwise_kept() {
-        assert_eq!(home_from(None).unwrap_err(), "HOME must be set");
+    fn home_must_be_an_absolute_path() {
+        let err = "HOME must be set to an absolute path";
+        assert_eq!(home_from(None).unwrap_err(), err);
+        assert_eq!(home_from(Some(OsStr::new(""))).unwrap_err(), err);
+        assert_eq!(home_from(Some(OsStr::new("rel"))).unwrap_err(), err);
         assert_eq!(
             home_from(Some(OsStr::new("/home/casey"))).unwrap(),
             PathBuf::from("/home/casey")
-        );
-        assert_eq!(home_from(Some(OsStr::new(""))).unwrap(), PathBuf::from(""));
-        assert_eq!(
-            home_from(Some(OsStr::new("rel"))).unwrap(),
-            PathBuf::from("rel")
         );
     }
 

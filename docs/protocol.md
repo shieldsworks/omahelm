@@ -212,8 +212,8 @@ within about 10 logical pixels, and the areas that contain the point.
   and the Omarchy theme's `colors.toml`, when they change.
 - `XDG_CONFIG_HOME`, `XDG_CACHE_HOME`, and `XDG_DATA_HOME` count only when
   the value is absolute. Otherwise the bases are `$HOME/.config`,
-  `$HOME/.cache`, and `$HOME/.local/share`. An unset `HOME` is an error
-  when a path uses it.
+  `$HOME/.cache`, and `$HOME/.local/share`. `HOME` must be an absolute
+  path when a path uses it. An unset, empty, or relative value is an error.
 - Tracks: `<logbook>/tracks/*.gpx`, written by
   [omalogbook](https://github.com/shieldsworks/omalogbook) and only read
   here. The folder is the `logbook` setting, else the `vault` omalogbook

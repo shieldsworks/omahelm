@@ -1328,7 +1328,7 @@ mod tests {
     #[test]
     fn a_tilde_expands_under_the_given_home() {
         let home = Ok(PathBuf::from("/home/ada"));
-        let missing: Result<PathBuf, String> = Err("HOME must be set".into());
+        let missing: Result<PathBuf, String> = Err("HOME must be set to an absolute path".into());
         assert_eq!(
             expand_with("~/Logbook", home.clone()).unwrap(),
             PathBuf::from("/home/ada/Logbook")
@@ -1336,11 +1336,11 @@ mod tests {
         assert_eq!(expand_with("~", home).unwrap(), PathBuf::from("/home/ada"));
         assert_eq!(
             expand_with("~/Logbook", missing.clone()).unwrap_err(),
-            "HOME must be set"
+            "HOME must be set to an absolute path"
         );
         assert_eq!(
             expand_with("~", missing.clone()).unwrap_err(),
-            "HOME must be set"
+            "HOME must be set to an absolute path"
         );
         assert_eq!(
             expand_with("/data/log", missing.clone()).unwrap(),
