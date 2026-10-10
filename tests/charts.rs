@@ -4,6 +4,10 @@
     clippy::unwrap_used,
     reason = "a tests/*.rs file is a crate of its own; allow-unwrap-in-tests covers its #[test] fns, not their helpers"
 )]
+#![allow(
+    clippy::expect_used,
+    reason = "a tests/*.rs file is a crate of its own; allow-expect-in-tests covers its #[test] fns, not their helpers"
+)]
 
 mod common;
 
