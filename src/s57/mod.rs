@@ -842,6 +842,89 @@ mod tests {
     }
 
     #[test]
+    fn rings_closes_short_duplicate_and_extreme_edges() {
+        let check = |parts: Vec<Vec<Pt>>, want: Vec<Vec<Pt>>| assert_eq!(rings(parts), want);
+        check(vec![], vec![]);
+        check(vec![vec![], vec![(1, 2)], vec![(3, 4)]], vec![]);
+        check(
+            vec![vec![(0, 0), (1, 0)]],
+            vec![vec![(0, 0), (1, 0), (0, 0)]],
+        );
+        check(
+            vec![vec![(5, 5), (5, 5)]],
+            vec![vec![(5, 5), (5, 5), (5, 5)]],
+        );
+        check(
+            vec![vec![(0, 0), (1, 0), (0, 1), (0, 0)]],
+            vec![vec![(0, 0), (1, 0), (0, 1), (0, 0)]],
+        );
+        let (lo, hi) = (i32::MIN, i32::MAX);
+        check(
+            vec![vec![(lo, hi), (hi, lo)]],
+            vec![vec![(lo, hi), (hi, lo), (lo, hi)]],
+        );
+        check(
+            vec![vec![], vec![(0, 0)], vec![(2, 2), (3, 3)], vec![(4, 4)]],
+            vec![vec![(2, 2), (3, 3), (2, 2)]],
+        );
+        check(
+            vec![vec![(0, 0), (0, 0), (1, 1)]],
+            vec![vec![(0, 0), (0, 0), (1, 1), (0, 0)]],
+        );
+        check(
+            vec![vec![(0, 0), (1, 0)], vec![(2, 0), (1, 0)]],
+            vec![vec![(0, 0), (1, 0), (2, 0), (0, 0)]],
+        );
+        check(
+            vec![vec![(0, 0), (1, 0)], vec![(5, 5), (6, 6)]],
+            vec![vec![(0, 0), (1, 0), (0, 0)], vec![(5, 5), (6, 6), (5, 5)]],
+        );
+        check(
+            vec![vec![(7, 7), (0, 0)], vec![(0, 0), (0, 0)]],
+            vec![vec![(7, 7), (0, 0), (0, 0), (7, 7)]],
+        );
+        check(
+            vec![
+                vec![(0, 0), (0, 10)],
+                vec![],
+                vec![(3, 3)],
+                vec![(10, 0), (0, 0)],
+                vec![(10, 0), (10, 10), (0, 10)],
+            ],
+            vec![vec![(0, 0), (0, 10), (10, 10), (10, 0), (0, 0)]],
+        );
+        let atoms = [
+            vec![],
+            vec![(0, 0)],
+            vec![(0, 0), (0, 0)],
+            vec![(0, 0), (1, 0)],
+            vec![(1, 0), (0, 0)],
+            vec![(0, 0), (1, 0), (0, 0)],
+            vec![(i32::MIN, i32::MAX), (i32::MAX, i32::MIN)],
+            vec![(0, 0), (0, 0), (0, 0)],
+            vec![(1, 1), (2, 2)],
+        ];
+        for a in &atoms {
+            for b in &atoms {
+                for c in &atoms {
+                    let parts = vec![a.clone(), b.clone(), c.clone()];
+                    let usable = parts.iter().any(|part| part.len() >= 2);
+                    let known: Vec<Pt> = parts.iter().flatten().copied().collect();
+                    let got = rings(parts);
+                    assert_eq!(usable, !got.is_empty());
+                    for ring in got {
+                        assert!(ring.len() >= 3);
+                        assert_eq!(ring.first(), ring.last());
+                        for point in &ring {
+                            assert!(known.contains(point));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn chain_joins_touching_edges_only() {
         let lines = chain(vec![
             vec![(0, 0), (1, 1)],
