@@ -11,7 +11,7 @@ and answers what's charted at a point, over the Unix socket specified in
 - `engine-night` the same request with `"look":"night"` names a tile drawn red on black
 - `engine-query` a `query` gets `features` at a point, most specific first
 - `engine-error` an unknown request gets an `error` and the connection stays open
-- `engine-single` a second `omahelm serve` on the same socket says it is already running
+- `engine-single` a second `omahelm serve` on the same socket says it is already running and exits 1
 
 ## How to get to it (user POV)
 
@@ -30,7 +30,7 @@ Preconditions:
 - **Night.** The same request with `,"look":"night"` before the closing brace. The file under `tiles.night.root` has the sha256 of `tests/golden/berkeley-breakwater-night.png`.
 - **What's here.** Run `$h $s --send '{"type":"query","id":7,"lat":37.868315,"lon":-122.320472,"zoom":15}' --until type=features`. `"id":7`, and the first feature is `"class":"BCNLAT"`, `"title":"Berkeley North Breakwater Light 4"`, `"label":"R \"4\""`, `"chart":"US5OAKFI"`.
 - **A bad request.** Run `$h $s --send '{"type":"bogus"}' --until type=error`. The reply is `{"message":"unknown type bogus","type":"error","v":1}`.
-- **One engine.** Run `env $(cat "$run/env") ./target/release/omahelm serve --charts "$run/charts"`. It prints `omahelm: already running on $run/omahelm/helm.sock` and exits 0; the first engine still answers **Connect**.
+- **One engine.** Run `env $(cat "$run/env") ./target/release/omahelm serve --charts "$run/charts"`. It prints `omahelm: already running on $run/omahelm/helm.sock` and exits 1; the first engine still answers **Connect**.
 - **Proof.** Save every `helm.py` transcript, the tile PNGs and their sha256, and `$run/engine.log` to `$run/artifacts/verify/<id>/`.
 
 ## Gotchas

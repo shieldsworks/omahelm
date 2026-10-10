@@ -1051,6 +1051,7 @@ Item {
 
     // What fills the middle of the screen when there's no chart to show.
     readonly property string notice: {
+        if (helm.runtimeError) return helm.runtimeError;
         if (helm.incompatible) return helm.error;
         if (!helm.connected) {
             if (!helm.waited) return "Starting the chart engine…";
