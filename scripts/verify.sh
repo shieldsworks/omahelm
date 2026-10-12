@@ -13,7 +13,12 @@ before=$(git status --porcelain --untracked-files=all)
 
 step_lint() { mise lint; }
 step_test() { mise test; }
-step_comments() { scripts/check-comments.sh; }
+step_comments() {
+  sha256sum -c <<'EOF'
+f3ec8a2d07e8f1e7c50770d0bb93579fc7bb0d60fc8e359a22607ba55cebc6c6  scripts/check-comments.sh
+EOF
+  scripts/check-comments.sh
+}
 
 step_layout() {
   local p bad=0 named
