@@ -37,6 +37,10 @@ jobs:
             ~/.cargo/git
             target
           key: rust-${{ matrix.arch }}-${{ hashFiles('Cargo.lock', 'mise.toml') }}
+      - name: Qt for the engine-path check
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ pkg-config qt6-base-dev qt6-declarative-dev libgl1-mesa-dev qml6-module-qtquick qml6-module-qtqml qml6-module-qtqml-workerscript qml6-module-qtqml-models
       - name: Verify
         run: scripts/verify.sh
       - name: Release build

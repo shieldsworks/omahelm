@@ -13,8 +13,12 @@ QtObject {
     readonly property string runtimeError: Runtime.runtimeError(Quickshell.env("XDG_RUNTIME_DIR"))
     readonly property string runtime: Runtime.runtimeDir(Quickshell.env("XDG_RUNTIME_DIR"))
     readonly property string path: runtime.length ? runtime + "helm.sock" : ""
-    // The checkout or plugin directory: this file is <repo>/ui/Helm.qml.
-    readonly property string repo: decodeURIComponent(String(Qt.resolvedUrl("..")).replace(/^file:\/\//, "")).replace(/\/$/, "")
+    function parentOf(path) {
+        return String(path).replace(/\/[^/]+$/, "");
+    }
+    // quickshell -p makes this directory the config root, so Qt.resolvedUrl("..") is qrc:/qs-blackhole.
+    readonly property string uiDir: decodeURIComponent(String(Qt.resolvedUrl(".")).replace(/^file:\/\//, "")).replace(/\/+$/, "")
+    readonly property string repo: parentOf(uiDir)
     readonly property string binary: Quickshell.env("OMAHELM_BIN") || repo + "/target/release/omahelm"
     // The engine's stderr, so a failed start can be shown.
     readonly property string log: runtime.length ? runtime + "engine.log" : ""

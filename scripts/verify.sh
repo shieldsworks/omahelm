@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 
-all_steps=(lint test comments layout clean)
+all_steps=(lint test comments layout engine clean)
 steps=("$@")
 ((${#steps[@]})) || steps=("${all_steps[@]}")
 
@@ -30,6 +30,138 @@ step_layout() {
     [[ -e $p ]] || { printf 'AGENTS.md Layout names %s, which does not exist\n' "$p"; bad=1; }
   done <<< "$named"
   return "$bad"
+}
+
+step_engine() {
+  if ! pkg-config --exists Qt6Core Qt6Gui Qt6Qml Qt6Network; then
+    echo 'Qt6 QML dev packages not installed. Skipped.'
+    return 0
+  fi
+
+  local ui_dir repo_expr parent_fn start_script work
+  ui_dir=$(sed -n 's/^[[:space:]]*readonly property string uiDir:[[:space:]]*//p' ui/Helm.qml)
+  repo_expr=$(sed -n 's/^[[:space:]]*readonly property string repo:[[:space:]]*//p' ui/Helm.qml)
+  parent_fn=$(awk '
+    /^[[:space:]]*function parentOf\(/ { p = 1 }
+    p { print }
+    p && /^[[:space:]]*}[[:space:]]*$/ { exit }
+  ' ui/Helm.qml)
+  start_script=$(awk -F\' '/var script = / { print $2; exit }' ui/Helm.qml)
+  [[ -n $ui_dir && -n $repo_expr && -n $parent_fn && -n $start_script ]] || {
+    echo 'ui/Helm.qml is missing uiDir, repo, parentOf, or the start script' >&2
+    return 1
+  }
+  [[ $(printf '%s\n' "$ui_dir" | wc -l) -eq 1 && $(printf '%s\n' "$repo_expr" | wc -l) -eq 1 ]] || {
+    echo 'uiDir and repo must each be one line' >&2
+    return 1
+  }
+
+  work=$(mktemp -d)
+  (
+    trap 'rm -rf "$work"' EXIT
+    export QT_QPA_PLATFORM=offscreen
+    export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/tmp/runtime-omahelm-verify}
+    mkdir -p "$XDG_RUNTIME_DIR"
+    chmod 700 "$XDG_RUNTIME_DIR"
+
+    g++ -fPIC -std=c++17 scripts/qs-url-probe.cpp -o "$work/qs-url-probe" \
+      $(pkg-config --cflags --libs Qt6Core Qt6Gui Qt6Qml Qt6Network)
+
+    cat > "$work/probe.qml" <<EOF
+import QtQuick
+QtObject {
+${parent_fn}
+    readonly property string uiDir: ${ui_dir}
+    readonly property string repo: ${repo_expr}
+    Component.onCompleted: {
+        console.log("REPO=" + repo)
+        Qt.quit()
+    }
+}
+EOF
+
+    failed=0
+    check() {
+      local name=$1 file=$2 expect=$3
+      local root=${4:-}
+      local out got ran runtime log
+      if [[ -n $root ]]; then
+        out=$("$work/qs-url-probe" "$file" "$root" 2>&1) || true
+      else
+        out=$("$work/qs-url-probe" "$file" 2>&1) || true
+      fi
+      got=$(printf '%s\n' "$out" | sed -n 's/^qml: REPO=//p' | tail -n 1)
+      runtime=$work/rt
+      rm -rf "$runtime"
+      mkdir -p "$runtime"
+      log=$runtime/engine.log
+      : > "$work/ran"
+      RECORD=$work/ran PATH=/usr/bin:/bin \
+        sh -c "$start_script" omahelm-start "$runtime" "$got/target/release/omahelm" "$log" || true
+      ran=$(cat "$work/ran" 2>/dev/null || true)
+      printf '\n== %s\n' "$name"
+      printf '%s\n' "$out" | sed -n 's/^/  /p'
+      printf '  repo: %s\n  want: %s\n  started: %s\n' "$got" "$expect" "${ran:-<none>}"
+      if [[ -s $log ]]; then
+        printf '  log: %s\n' "$(tail -n 1 "$log")"
+      fi
+      if [[ $got != "$expect" || $ran != "$expect/target/release/omahelm" ]]; then
+        echo '  FAIL' >&2
+        failed=1
+      else
+        echo '  ok'
+      fi
+    }
+
+    mkdir -p "$work/checkout/ui" "$work/checkout/target/release"
+    cat > "$work/checkout/target/release/omahelm" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$0" > "$RECORD"
+EOF
+    chmod +x "$work/checkout/target/release/omahelm"
+    cp "$work/probe.qml" "$work/checkout/ui/probe.qml"
+    check 'checkout, quickshell -p ui/shell.qml' \
+      "$work/checkout/ui/probe.qml" "$work/checkout"
+
+    mkdir -p "$work/shell/plugins/org.omahoy.helm/ui" \
+      "$work/shell/plugins/org.omahoy.helm/target/release"
+    cp "$work/checkout/target/release/omahelm" \
+      "$work/shell/plugins/org.omahoy.helm/target/release/omahelm"
+    cp "$work/probe.qml" "$work/shell/plugins/org.omahoy.helm/ui/probe.qml"
+    check 'plugin under the shell config root' \
+      "$work/shell/plugins/org.omahoy.helm/ui/probe.qml" \
+      "$work/shell/plugins/org.omahoy.helm" \
+      "$work/shell"
+
+    miss_log=$work/miss.log
+    : > "$miss_log"
+    PATH=/usr/bin:/bin \
+      sh -c "$start_script" omahelm-start "$work/miss" "$work/missing/omahelm" "$miss_log" || true
+    if [[ ! -s $miss_log ]] || ! grep -q omahelm "$miss_log"; then
+      echo 'FAIL: a missing release binary did not fall back to omahelm on PATH' >&2
+      failed=1
+    else
+      printf 'PATH fallback log: %s\n' "$(tail -n 1 "$miss_log")"
+    fi
+
+    if ! grep -q 'Quickshell.env("OMAHELM_BIN")' ui/Helm.qml; then
+      echo 'FAIL: OMAHELM_BIN no longer overrides the binary' >&2
+      failed=1
+    fi
+    if ! grep -q 'wrapMode: Text.Wrap' ui/ChartWindow.qml \
+      || ! grep -q 'helm.lastLog' ui/ChartWindow.qml; then
+      echo 'FAIL: the window does not wrap helm.lastLog when the engine is unreachable' >&2
+      failed=1
+    else
+      echo 'window surfaces helm.lastLog'
+    fi
+
+    if ((failed)); then
+      echo 'FAILED' >&2
+      exit 1
+    fi
+    echo 'All engine-path checks passed.'
+  )
 }
 
 step_clean() {
