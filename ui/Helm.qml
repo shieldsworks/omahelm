@@ -18,7 +18,6 @@ QtObject {
     }
     // quickshell -p makes this directory the config root, so Qt.resolvedUrl("..") is qrc:/qs-blackhole.
     readonly property string uiDir: decodeURIComponent(String(Qt.resolvedUrl(".")).replace(/^file:\/\//, "")).replace(/\/+$/, "")
-    // The checkout or the installed plugin: the parent of ui/.
     readonly property string repo: parentOf(uiDir)
     readonly property string binary: Quickshell.env("OMAHELM_BIN") || repo + "/target/release/omahelm"
     // The engine's stderr, so a failed start can be shown.
