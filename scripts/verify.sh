@@ -38,15 +38,21 @@ step_engine() {
     return 0
   fi
 
-  local repo_expr start_script work
+  local ui_dir repo_expr parent_fn start_script work
+  ui_dir=$(sed -n 's/^[[:space:]]*readonly property string uiDir:[[:space:]]*//p' ui/Helm.qml)
   repo_expr=$(sed -n 's/^[[:space:]]*readonly property string repo:[[:space:]]*//p' ui/Helm.qml)
+  parent_fn=$(awk '
+    /^[[:space:]]*function parentOf\(/ { p = 1 }
+    p { print }
+    p && /^[[:space:]]*}[[:space:]]*$/ { exit }
+  ' ui/Helm.qml)
   start_script=$(awk -F\' '/var script = / { print $2; exit }' ui/Helm.qml)
-  [[ -n $repo_expr && -n $start_script ]] || {
-    echo 'ui/Helm.qml is missing repo or the start script' >&2
+  [[ -n $ui_dir && -n $repo_expr && -n $parent_fn && -n $start_script ]] || {
+    echo 'ui/Helm.qml is missing uiDir, repo, parentOf, or the start script' >&2
     return 1
   }
-  [[ $(printf '%s\n' "$repo_expr" | wc -l) -eq 1 ]] || {
-    echo 'repo must be one line' >&2
+  [[ $(printf '%s\n' "$ui_dir" | wc -l) -eq 1 && $(printf '%s\n' "$repo_expr" | wc -l) -eq 1 ]] || {
+    echo 'uiDir and repo must each be one line' >&2
     return 1
   }
 
@@ -64,6 +70,8 @@ step_engine() {
     cat > "$work/probe.qml" <<EOF
 import QtQuick
 QtObject {
+${parent_fn}
+    readonly property string uiDir: ${ui_dir}
     readonly property string repo: ${repo_expr}
     Component.onCompleted: {
         console.log("REPO=" + repo)
