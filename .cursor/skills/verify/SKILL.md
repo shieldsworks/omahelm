@@ -1,6 +1,6 @@
 ---
 name: verify-omahelm
-description: "Drive omahelm the way a user does (the render CLI, the chart engine's socket, chart import and index, the trips commands) and capture proof. Use before calling any behavior change done, when reviewing someone else's change, or when asked to verify omahelm."
+description: "Drive omahelm the way a user does (the render CLI, the chart engine socket, chart import and index, the trips commands, and the Quickshell window when it can run) and capture proof. Use before calling any behavior change done, when reviewing someone else's change, or when asked to verify omahelm."
 ---
 
 # Verify omahelm
@@ -47,7 +47,9 @@ env $(cat "$run/env") ./target/release/omahelm serve --charts "$run/charts" \
 ```
 
 Ready when that prints `hello`, then a `state` with `"status":"ok"` and
-`"cells":2`, and exits 0.
+`"cells":2`, and exits 0. Observed on this checkout: the first line was
+`{"helm":"0.1.0","type":"hello","v":1}` and the following `state` had
+`"cells":2` and `"status":"ok"`.
 
 ## Doctor
 
@@ -59,7 +61,8 @@ grep -c . "$run/env"                             # 8 lines, every path under $ru
 
 It must show this checkout's build, a live process this run started, and a
 socket inside `$run`. Never drive the user's own running instance, their
-real config, theme, logbook or chart folder.
+real config, theme, logbook or chart folder. Observed here:
+`/workspace/target/release/omahelm`, a live socket, and `8`.
 
 ## Drive
 
@@ -69,8 +72,10 @@ lists others.
 
 - The CLI: `env $(cat "$run/env") ./target/release/omahelm <subcommand>`.
 - The engine's socket: `scripts/helm.py`, below, speaking `docs/protocol.md`.
-- The window (`./run.sh` under Quickshell, `grim` for screenshots) only on
-  Casey's machine. CI and cloud boxes can't run it; report it as not driven.
+- The window: `./run.sh`, which execs `quickshell -p ui/shell.qml`. That
+  needs Quickshell on a Hyprland session. When `quickshell` is not on
+  `PATH`, do not skip the feature. Drive `features/window.md` and say
+  the painted window was not driven.
 
 ## Evidence
 
@@ -84,6 +89,9 @@ Put everything in `$run/artifacts/verify/<feature-id>/`, then copy it to
 - Exercise the real user path. No test-only endpoints, no internal setters.
   The only stand-ins are the fixtures: two NOAA cells and a synthetic
   logbook.
+- A `grim` screenshot is the window's proof. The start-script transcript
+  and `scripts/verify.sh engine` are what you can capture without
+  Quickshell. Name them as substitutes. Do not call them a screenshot.
 - `omahelm fetch REGION|CELL` downloads from NOAA. Drive it only when the
   task is about fetching and the network is allowed; otherwise report it
   as not driven.
@@ -94,7 +102,7 @@ Put everything in `$run/artifacts/verify/<feature-id>/`, then copy it to
 
 ```sh
 kill "$(cat "$run/pid")" 2>/dev/null || true    # only what this run started, never pkill by name
-rm -rf "$run/omahelm" "$run/cache" "$run/charts" "$run/logbook" "$run/home" "$run/config"
+rm -rf "$run/omahelm" "$run/cache" "$run/charts" "$run/logbook" "$run/home" "$run/config" "$run/data"
 ```
 
 Evidence stays. Check it still exists after cleanup, and that
