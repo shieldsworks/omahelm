@@ -25,12 +25,12 @@ Preconditions:
 - The baseline from `README.md` and the engine started per `../SKILL.md`; Doctor passes.
 - `h=.cursor/skills/verify/scripts/helm.py` and `s=$run/omahelm/helm.sock`.
 
-- **Connect.** Run `$h $s --until charts.status=ok`. The first line is `{"helm":"0.1.0","type":"hello","v":1}`; a `state` follows with `"cells":2`, `"skipped":0` and `charts.root` equal to `$run/charts`.
-- **A tile.** Run `$h $s --send '{"type":"tiles","z":15,"x0":5250,"y0":12654,"x1":5250,"y1":12654,"scale":2}' --until type=tile`. The `tile` message has `"path":"15/5250/12654@2.png"`; that file under `tiles.root` from `state` exists, and its sha256 equals `tests/golden/berkeley-breakwater-paper.png`'s.
-- **Night.** The same request with `,"look":"night"` before the closing brace. The file under `tiles.night.root` has the sha256 of `tests/golden/berkeley-breakwater-night.png`.
-- **What's here.** Run `$h $s --send '{"type":"query","id":7,"lat":37.868315,"lon":-122.320472,"zoom":15}' --until type=features`. `"id":7`, and the first feature is `"class":"BCNLAT"`, `"title":"Berkeley North Breakwater Light 4"`, `"label":"R \"4\""`, `"chart":"US5OAKFI"`.
-- **A bad request.** Run `$h $s --send '{"type":"bogus"}' --until type=error`. The reply is `{"message":"unknown type bogus","type":"error","v":1}`.
-- **One engine.** Run `env $(cat "$run/env") ./target/release/omahelm serve --charts "$run/charts"`. It prints `omahelm: already running on $run/omahelm/helm.sock` and exits 1; the first engine still answers **Connect**.
+- **Connect.** Run `$h $s --until charts.status=ok`. Observed first line `{"helm":"0.1.0","type":"hello","v":1}`, then a `state` with `"cells":2`, `"skipped":0`, `"status":"ok"` and `charts.root` equal to `$run/charts`. Exit 0.
+- **A tile.** Run `$h $s --send '{"type":"tiles","z":15,"x0":5250,"y0":12654,"x1":5250,"y1":12654,"scale":2}' --until type=tile`. Observed `> {"type":"tiles","z":15,"x0":5250,"y0":12654,"x1":5250,"y1":12654,"scale":2}` and a `tile` with `"path":"15/5250/12654@2.png"`. That file under `tiles.root` had sha256 `7e5fc8bee2646afa0ca4e3fc38a1ff1dd767521368a7ff20b10737ade28f468c`, the same as `tests/golden/berkeley-breakwater-paper.png`.
+- **Night.** The same request with `,"look":"night"` before the closing brace. Observed `"path":"15/5250/12654@2.png"` under `tiles.night.root` with sha256 `1791c74240b46bf6e3b90ee139180502498cf36ac131064ad23e2cb50c3532e7`, the same as `tests/golden/berkeley-breakwater-night.png`.
+- **What's here.** Run `$h $s --send '{"type":"query","id":7,"lat":37.868315,"lon":-122.320472,"zoom":15}' --until type=features`. Observed `"id":7` and a first feature `"class":"BCNLAT"`, `"title":"Berkeley North Breakwater Light 4"`, `"label":"R \"4\""`, `"chart":"US5OAKFI"`.
+- **A bad request.** Run `$h $s --send '{"type":"bogus"}' --until type=error`. Observed `{"message":"unknown type bogus","type":"error","v":1}`. Exit 0.
+- **One engine.** Run `env $(cat "$run/env") ./target/release/omahelm serve --charts "$run/charts"`. Observed stderr `omahelm: already running on $run/omahelm/helm.sock`, exit 1. **Connect** still printed `hello` and exited 0.
 - **Proof.** Save every `helm.py` transcript, the tile PNGs and their sha256, and `$run/engine.log` to `$run/artifacts/verify/<id>/`.
 
 ## Gotchas

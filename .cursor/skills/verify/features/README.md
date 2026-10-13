@@ -31,7 +31,11 @@ user path updates its feature file in the same PR.
 - Socket proof: the request line and the reply lines, verbatim.
 - Image proof: the PNG plus its sha256, compared with `tests/golden/` when
   the recipe names a golden.
-- Window proof (Casey's machine only): a `grim` screenshot with the app visible.
+- Window proof, when Quickshell runs: a `grim` screenshot with the app
+  visible, including the notice when the engine is down.
+- Window proof, when Quickshell does not run: the `./run.sh` transcript,
+  the start-script transcript, and the `scripts/verify.sh engine` transcript.
+  Those do not stand in for the screenshot.
 - Mutation proof: a read-only second look at what was stored.
 - Record the feature ID and entry point with every artifact.
 - An unreachable path is reported with the command tried and the unmet
@@ -63,4 +67,7 @@ handles, required state, commands and observable proof.
   with a cell it can't read, and `omahelm fetch --list`.
 - [Days sailed](./trips.md) covers `omahelm trips`, `omahelm trip`, a
   missing logbook, and the engine's `trips` and `trip` messages.
-- Not mapped: the window (`./run.sh`), which only Casey's machine can run.
+- [The chart window](./window.md) covers `./run.sh`, the window starting
+  its own engine, and the notice it shows when that engine never answers.
+  Without Quickshell the painted window is unreachable. The file names
+  the substitute that was run.
