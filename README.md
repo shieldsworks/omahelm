@@ -50,6 +50,19 @@ target/release/omahelm fetch --list      # every region
 target/release/omahelm fetch US5OAKFI    # or a single cell
 ```
 
+Or by area: give south, west, north and east in degrees and `fetch` takes
+every NOAA collection that touches it.
+
+```sh
+target/release/omahelm fetch --region 46.7,-123.5,48.7,-121.3   # Puget Sound: WA
+target/release/omahelm fetch --list --region 41.5,-124.6,42.5,-123.5   # CA and OR, no download
+```
+
+The collections' bounds are generous boxes around each state and its
+waters, so an area near a line may pick a neighbor too. Where NOAA has
+nothing (outside US waters), `fetch` says so; bring charts you have with
+`omahelm import`.
+
 Run `fetch` again to update: NOAA publishes corrections weekly. If you
 already have ENCs, `omahelm import FILE.zip` or `omahelm import DIR`.
 Charts go in `~/.local/share/omahelm/charts`. Cells NOAA has canceled are
@@ -149,6 +162,7 @@ safety_contour = 12     # water shallower than this is shaded as unsafe
 deep_contour = 30
 palette = "theme"       # theme, or paper for the colors of a paper chart
 logbook = "~/Logbook"   # the tracks the trips layer draws
+home = 47.687, -122.413 # latitude, longitude: where the window first opens
 ```
 
 Depths are in `units`. Omahelm uses the shallowest contour the chart has at
@@ -157,6 +171,10 @@ or below your safety contour, the way S-52 does.
 `logbook` is only needed if your vault isn't where omalogbook's own config
 says it is. Omahelm reads `<logbook>/tracks/*.gpx`, or the folder itself if
 it holds the GPX files.
+
+`home` is where the window first looks. It opens where you left it; with no
+saved view it opens at `home`, then over your charts, then on San Francisco
+Bay. A bad `home` is reported and ignored.
 
 The colors follow the Omarchy theme and change with it. Colors that mean
 something at sea don't: a green buoy stays green even if your theme's

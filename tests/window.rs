@@ -88,3 +88,66 @@ fn the_window_shows_that_error_instead_of_starting() {
         "the window does not show the runtime error"
     );
 }
+
+fn first_view(args: &str) -> String {
+    let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("ui/View.js");
+    let source =
+        std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
+    let source = source.replace(".pragma library", "");
+    let script = format!("{source}\nprocess.stdout.write(JSON.stringify(firstView({args})));");
+    let out = Command::new("node")
+        .arg("-e")
+        .arg(&script)
+        .output()
+        .unwrap_or_else(|e| panic!("node: {e}"));
+    assert!(
+        out.status.success(),
+        "node {}\n{}",
+        out.status,
+        String::from_utf8_lossy(&out.stderr)
+    );
+    String::from_utf8(out.stdout).unwrap()
+}
+
+const SAVED: &str = r#"{lat: 10, lon: 20, zoom: 9}"#;
+const HOME: &str = r#"{lat: 47.687, lon: -122.413}"#;
+const EXTENT: &str = r#"{west: -123, south: 46, east: -122, north: 48}"#;
+
+#[test]
+fn the_first_view_is_the_last_view_then_home_then_the_charts_then_the_bay() {
+    assert_eq!(
+        first_view(&format!("{SAVED}, {HOME}, {EXTENT}, true")),
+        r#"{"from":"saved","lat":10,"lon":20,"zoom":9}"#
+    );
+    assert_eq!(
+        first_view(&format!("null, {HOME}, {EXTENT}, true")),
+        r#"{"from":"home","lat":47.687,"lon":-122.413,"zoom":13}"#
+    );
+    assert_eq!(
+        first_view(&format!("null, null, {EXTENT}, true")),
+        r#"{"from":"extent","west":-123,"south":46,"east":-122,"north":48}"#
+    );
+    assert_eq!(
+        first_view("null, null, null, true"),
+        r#"{"from":"default","lat":37.8663,"lon":-122.3148,"zoom":13}"#
+    );
+}
+
+#[test]
+fn the_first_view_waits_for_the_engine_before_giving_up() {
+    assert_eq!(first_view("null, null, null, false"), "null");
+}
+
+#[test]
+fn a_damaged_saved_view_or_home_is_skipped() {
+    assert_eq!(
+        first_view(&format!(
+            r#"{{lat: "x", lon: 20, zoom: 9}}, {HOME}, null, false"#
+        )),
+        r#"{"from":"home","lat":47.687,"lon":-122.413,"zoom":13}"#
+    );
+    assert_eq!(
+        first_view(&format!(r#"null, {{lat: 1}}, {EXTENT}, false"#)),
+        r#"{"from":"extent","west":-123,"south":46,"east":-122,"north":48}"#
+    );
+}

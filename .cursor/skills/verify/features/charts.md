@@ -8,6 +8,7 @@ cells were skipped and why, and list the regions NOAA publishes.
 - `charts-import` `omahelm import DIR` installs every cell under DIR and re-indexes
 - `charts-index` `omahelm index` counts the cells and lists any it skipped, with the reason
 - `charts-fetch-list` `omahelm fetch --list` names NOAA's regions without downloading
+- `charts-fetch-region` `omahelm fetch --list --region S,W,N,E` names the collections an area picks; `fetch --region` downloads them
 
 ## How to get to it (user POV)
 
@@ -23,6 +24,7 @@ Preconditions:
 - **Import.** Run `omahelm import tests/fixtures/ENC_ROOT --charts "$run/charts"`. Observed stderr `Installed 2 cells in $run/charts`, stdout `2 cells in $run/charts`, exit 0. A second look: `find "$run/charts" -name '*.00?'` listed `ENC_ROOT/US5OAKFG/US5OAKFG.000`, `.001`, `.002` and `ENC_ROOT/US5OAKFI/US5OAKFI.000`, and `$run/charts/index.json` existed.
 - **A cell it can't read.** Run `mkdir -p "$run/charts/ENC_ROOT/US5BROKN" && head -c 300 tests/fixtures/ENC_ROOT/US5OAKFI/US5OAKFI.000 > "$run/charts/ENC_ROOT/US5BROKN/US5BROKN.000"`, then `omahelm index --charts "$run/charts"`. Observed stdout `2 cells in $run/charts` and `  skipped ENC_ROOT/US5BROKN/US5BROKN.000: $run/charts/ENC_ROOT/US5BROKN/US5BROKN.000: field 0000 runs past the end of the file`, exit 0.
 - **Regions.** Run `omahelm fetch --list`. Observed first lines `AK  Alaska`, `AL  Alabama`, `CA  California`, exit 0. Nothing under `$run` changed.
+- **Regions for an area.** Run `omahelm fetch --list --region 41.5,-124.6,42.5,-123.5`. Observed `CA  California` and `OR  Oregon`, exit 0. With `30,-50,35,-40` it printed `omahelm: no NOAA ENC collection covers 30,-50,35,-40. ... omahelm import ZIP|DIR` on stderr, exit 1. Nothing under `$run` changed.
 - **Proof.** Save each command's stdout, stderr and exit code, and the `find` listing, to `$run/artifacts/verify/<id>/`.
 
 ## Gotchas

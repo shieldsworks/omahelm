@@ -2,6 +2,7 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 import "Geo.js" as Geo
+import "View.js" as View
 
 // The chartplotter window: the chart, the boat and AIS from omakeel, wind
 // barbs from omawind, a status bar, and the keys. Run standalone
@@ -987,13 +988,22 @@ Item {
         onLoadFailed: { app.savedRead = true; app.placeCamera(); }
     }
 
-    // The first view: where we left off, else the charts, else the Bay.
+    // The first view: where we left off, else home, else the charts, else
+    // the Bay.
     function placeCamera() {
         if (placed || !savedRead || map.width <= 0) return;
         var s = saved;
-        if (s && typeof s.lat === "number" && typeof s.lon === "number" && typeof s.zoom === "number") {
-            map.zoom = Math.max(map.minZoom, Math.min(map.maxZoom, s.zoom));
-            map.lookAt(s.lat, s.lon);
+        var charts = helm.state && helm.state.charts ? helm.state.charts : null;
+        var home = helm.state && helm.state.settings ? helm.state.settings.home : null;
+        var first = View.firstView(s, home, charts ? charts.extent : null, firstViewWait.fired);
+        if (!first) return;
+        if (first.from === "extent") {
+            map.fit(first.west, first.south, first.east, first.north);
+        } else {
+            map.zoom = Math.max(map.minZoom, Math.min(map.maxZoom, first.zoom));
+            map.lookAt(first.lat, first.lon);
+        }
+        if (first.from === "saved") {
             if (s.waypoint && typeof s.waypoint.lat === "number" && typeof s.waypoint.lon === "number")
                 waypoint = {lat: s.waypoint.lat, lon: s.waypoint.lon};
             if (s.wind === true) windOn = true;
@@ -1002,14 +1012,6 @@ Item {
             if (s.trips === true) tripsOn = true;
             if (typeof s.tripDay === "string" && /^\d{4}-\d{2}-\d{2}$/.test(s.tripDay))
                 tripDay = s.tripDay;
-        } else if (helm.state && helm.state.charts && helm.state.charts.extent) {
-            var e = helm.state.charts.extent;
-            map.fit(e.west, e.south, e.east, e.north);
-        } else if (!firstViewWait.fired) {
-            return;
-        } else {
-            map.zoom = 13;
-            map.lookAt(37.8663, -122.3148);
         }
         placed = true;
         if (follow && hasPosition) followBoat();

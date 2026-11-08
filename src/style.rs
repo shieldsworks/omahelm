@@ -313,6 +313,9 @@ pub struct Settings {
     /// The logbook vault the trips layer reads, when it isn't the one
     /// omalogbook is configured for.
     pub logbook: Option<String>,
+    /// Where the window first opens when it has no saved view: latitude and
+    /// longitude in degrees.
+    pub home: Option<(f64, f64)>,
 }
 
 impl Default for Settings {
@@ -327,6 +330,7 @@ impl Default for Settings {
             deep_contour: 30.0 * 0.3048,
             palette: "theme".into(),
             logbook: None,
+            home: None,
         }
     }
 }
@@ -384,6 +388,10 @@ impl Settings {
                         s.logbook = Some(v.clone());
                     }
                 }
+                "home" => match parse_home(v) {
+                    Some(home) => s.home = Some(home),
+                    None => problems.push("home: expected latitude, longitude in degrees".into()),
+                },
                 "palette" => match v.as_str() {
                     "theme" | "paper" => s.palette = v.clone(),
                     other => problems.push(format!("palette: {other} is not theme or paper")),
@@ -401,9 +409,9 @@ impl Settings {
         (s, problems)
     }
 
-    /// What the tiles are drawn from. The logbook is left out: it changes
-    /// nothing about the chart, and pointing it somewhere else mustn't
-    /// throw away every tile in the cache.
+    /// What the tiles are drawn from. The logbook and home are left out:
+    /// they change nothing about the chart, and moving them mustn't throw
+    /// away every tile in the cache.
     pub fn key(&self) -> String {
         format!(
             "{:?}",
@@ -417,6 +425,13 @@ impl Settings {
             )
         )
     }
+}
+
+/// `lat, lon` in degrees, both in range.
+fn parse_home(v: &str) -> Option<(f64, f64)> {
+    let (a, b) = v.split_once(',')?;
+    let (lat, lon) = (a.trim().parse::<f64>().ok()?, b.trim().parse::<f64>().ok()?);
+    ((-90.0..=90.0).contains(&lat) && (-180.0..=180.0).contains(&lon)).then_some((lat, lon))
 }
 
 pub fn config_path() -> Result<PathBuf, String> {
@@ -508,5 +523,27 @@ mod tests {
         assert_eq!(s.key(), other.key());
         let (s, _) = Settings::parse("");
         assert!((s.safety_contour - 3.6576).abs() < 1e-9);
+    }
+
+    #[test]
+    fn home_is_latitude_and_longitude() {
+        let (s, problems) = Settings::parse("home = 47.687, -122.413\n");
+        assert_eq!(s.home, Some((47.687, -122.413)));
+        assert!(problems.is_empty());
+        let (s, _) = Settings::parse("home = \"-17.5,-149.8\"\n");
+        assert_eq!(s.home, Some((-17.5, -149.8)));
+        assert_eq!(Settings::parse("").0.home, None);
+        for bad in ["north", "47.6", "91, 0", "0, 181", "47.6, west", "1, 2, 3"] {
+            let (s, problems) = Settings::parse(&format!("home = {bad}\n"));
+            assert_eq!(s.home, None, "{bad}");
+            assert_eq!(
+                problems,
+                vec!["home: expected latitude, longitude in degrees".to_string()],
+                "{bad}"
+            );
+        }
+        // Home is not part of how a tile is drawn.
+        let (s, _) = Settings::parse("home = 1, 2\n");
+        assert_eq!(s.key(), Settings::default().key());
     }
 }
