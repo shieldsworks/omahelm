@@ -13,7 +13,9 @@ const USAGE: &str = "usage:
   omahelm serve [--charts DIR]            run the chart engine for the chartplotter
   omahelm fetch REGION|CELL... [--charts DIR]
                                           download NOAA charts: a state (CA) or a cell (US5OAKFI)
-  omahelm fetch --list                    list NOAA's regions
+  omahelm fetch --region S,W,N,E [--charts DIR]
+                                          download every NOAA collection that touches the area
+  omahelm fetch --list [--region S,W,N,E] list NOAA's regions, or the ones that area picks
   omahelm import ZIP|DIR [--charts DIR]   install ENC cells you already have
   omahelm index [--charts DIR]            re-read the charts and list any skipped
   omahelm trips [--logbook DIR]           the days your logbook has tracks for
@@ -49,12 +51,7 @@ fn run(args: &[String]) -> Result<(), String> {
         }
         Some("index") => index(&args[1..]),
         Some("serve") => omahelm::server::serve(charts_root(&args[1..])?),
-        Some("fetch") if args.get(1).map(String::as_str) == Some("--list") => {
-            for (code, name) in omahelm::fetch::REGIONS {
-                println!("{code}  {name}");
-            }
-            Ok(())
-        }
+        Some("fetch") if args.iter().any(|a| a == "--list") => list_regions(&args[1..]),
         Some("fetch") if args.len() >= 2 => fetch(&args[1..]),
         Some("import") if args.len() >= 2 => import(&args[1..]),
         Some("trips") => trips(&args[1..]),
@@ -99,9 +96,29 @@ fn positional(args: &[String]) -> Vec<String> {
     out
 }
 
+/// `fetch --list`: every region, or with `--region` the ones that pick.
+fn list_regions(args: &[String]) -> Result<(), String> {
+    let picked = match flag(args, "--region") {
+        Some(area) => omahelm::fetch::pick(area)?,
+        None => omahelm::fetch::REGIONS.iter().collect(),
+    };
+    for r in picked {
+        println!("{}  {}", r.code, r.name);
+    }
+    Ok(())
+}
+
 fn fetch(args: &[String]) -> Result<(), String> {
     let root = charts_root(args)?;
-    let n = omahelm::fetch::fetch(&positional(args), &root)?;
+    let mut targets = positional(args);
+    if let Some(area) = flag(args, "--region") {
+        for r in omahelm::fetch::pick(area)? {
+            if !targets.iter().any(|t| t.eq_ignore_ascii_case(r.code)) {
+                targets.push(r.code.to_string());
+            }
+        }
+    }
+    let n = omahelm::fetch::fetch(&targets, &root)?;
     eprintln!("Installed {n} cells in {}", root.display());
     index(args)
 }

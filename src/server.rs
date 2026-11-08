@@ -259,6 +259,9 @@ impl Engine {
                 "palette": set.palette,
             },
         });
+        if let Some((lat, lon)) = set.home {
+            state["settings"]["home"] = json!({"lat": lat, "lon": lon});
+        }
         if !view.problems.is_empty() {
             state["problems"] = json!(view.problems);
         }

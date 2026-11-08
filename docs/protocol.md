@@ -64,6 +64,9 @@ replace their copy.
   not the theme. An engine without it draws only the theme's look.
 - `settings` are in `units`: the depths as the user wrote them in
   `~/.config/omahelm/config.toml`.
+- `settings.home` is `{"lat":47.687,"lon":-122.413}` in degrees, present
+  only when the config has a valid `home`. It sets where the window first
+  looks when it has no saved view; it doesn't change the tiles.
 - `problems` are human-readable, for display. Absent when there are none.
 
 `tile` answers a `tiles` request, one message per tile, nearest the center
