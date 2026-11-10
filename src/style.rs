@@ -133,12 +133,13 @@ impl Palette {
         let yellow = semantic(get("yellow"), 40.0, 65.0, Rgb(0xe8, 0xc5, 0x2a));
         let magenta = semantic(get("magenta"), 280.0, 335.0, Rgb(0xc0, 0x4c, 0xc8));
         let orange = semantic(get("orange"), 18.0, 40.0, Rgb(0xe0, 0x8a, 0x2a));
-        // The land tint is buff, as on a paper chart, faint on the ground.
-        let buff = Rgb(0xc8, 0xa8, 0x6a);
+        // Land is the theme's own ground lifted toward its ink, so it sits
+        // apart from the water in every theme. A fixed paper-chart buff
+        // turned muddy on green and blue grounds.
         let (land_t, shallow) = if dark {
-            (0.22, [0.10, 0.20, 0.34])
+            (0.10, [0.10, 0.20, 0.34])
         } else {
-            (0.45, [0.12, 0.24, 0.40])
+            (0.10, [0.12, 0.24, 0.40])
         };
         Palette {
             dark,
@@ -148,10 +149,10 @@ impl Palette {
             medium_shallow: bg.mix(water, shallow[1]),
             very_shallow: bg.mix(water, shallow[2]),
             drying: bg.mix(green, if dark { 0.22 } else { 0.35 }),
-            land: bg.mix(buff, land_t),
+            land: bg.mix(fg, land_t),
             // Built-up land barely differs: coarse and fine charts disagree on
             // where towns end, and a stark tint shows their seams.
-            built: bg.mix(buff, land_t + 0.03),
+            built: bg.mix(fg, land_t + 0.03),
             structure: bg.mix(fg, if dark { 0.38 } else { 0.5 }),
             ink: fg,
             faint: bg.mix(fg, 0.55),
